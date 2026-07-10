@@ -1,0 +1,30 @@
+{
+  "expo": {
+    "name": "Coinflalshi",
+    "slug": "coinflalshi",
+    "scheme": "coinflalshi",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "newArchEnabled": true,
+    "plugins": ["expo-router"],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "cash.coinflow.coinflalshi"
+    },
+    "android": {
+      "package": "cash.coinflow.coinflalshi",
+      "adaptiveIcon": {
+        "backgroundColor": "#0f0f14",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    }
+  }
+}

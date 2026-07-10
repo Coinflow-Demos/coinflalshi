@@ -1,0 +1,21 @@
+node_modules/
+.env
+.env*.local
+.DS_Store
+
+# next.js
+apps/web/.next/
+apps/web/out/
+
+# expo
+apps/mobile/.expo/
+apps/mobile/dist/
+apps/mobile/web-build/
+
+
+# build artifacts
+dist/
+build/
+*.tsbuildinfo
+npm-debug.log*
+.vercel

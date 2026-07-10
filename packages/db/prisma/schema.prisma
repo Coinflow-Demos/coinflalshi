@@ -1,0 +1,158 @@
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "rhel-openssl-3.0.x"]
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DATABASE_URL_UNPOOLED")
+}
+
+model User {
+  id                     String                  @id @default(cuid())
+  email                  String                  @unique
+  passwordHash           String
+  name                   String
+  createdAt              DateTime                @default(now())
+  wallet                 Wallet?
+  positions              Position[]
+  transactions           Transaction[]
+  savedPaymentMethods    SavedPaymentMethod[]
+  cryptoDepositAddresses CryptoDepositAddress[]
+}
+
+model Wallet {
+  id           String   @id @default(cuid())
+  userId       String   @unique
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  balanceCents Int      @default(0)
+  updatedAt    DateTime @updatedAt
+}
+
+enum TransactionType {
+  DEPOSIT
+  WITHDRAWAL
+  BET_PLACED
+  BET_PAYOUT
+  BET_REFUND
+}
+
+enum TransactionStatus {
+  PENDING
+  COMPLETED
+  FAILED
+}
+
+enum PaymentMethodType {
+  CARD
+  APPLE_PAY
+  GOOGLE_PAY
+  CRYPTO
+  LEDGER
+}
+
+model Transaction {
+  id                String             @id @default(cuid())
+  userId            String
+  user              User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type              TransactionType
+  status            TransactionStatus  @default(PENDING)
+  amountCents       Int
+  method            PaymentMethodType?
+  coinflowPaymentId String?            @unique
+  metadata          Json?
+  createdAt         DateTime           @default(now())
+
+  @@index([userId])
+  @@index([coinflowPaymentId])
+}
+
+model SavedPaymentMethod {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  cardToken String
+  brand     String
+  last4     String
+  expMonth  String
+  expYear   String
+  isDefault Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+model CryptoDepositAddress {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  chain     String
+  token     String
+  address   String
+  createdAt DateTime @default(now())
+
+  @@unique([userId, chain, token])
+}
+
+enum MarketStatus {
+  OPEN
+  RESOLVING
+  RESOLVED
+}
+
+model Market {
+  id                String       @id @default(cuid())
+  slug              String       @unique
+  category          String
+  title             String
+  subtitle          String?
+  imageEmoji        String?
+  status            MarketStatus @default(OPEN)
+  volumeCents       Int          @default(0)
+  closesAt          DateTime
+  resolvesAt        DateTime
+  resolvedOutcomeId String?
+  createdAt         DateTime     @default(now())
+  outcomes          Outcome[]
+  positions         Position[]
+
+  @@index([status, resolvesAt])
+}
+
+model Outcome {
+  id         String     @id @default(cuid())
+  marketId   String
+  market     Market     @relation(fields: [marketId], references: [id], onDelete: Cascade)
+  label      String
+  priceCents Int
+  positions  Position[]
+
+  @@index([marketId])
+}
+
+enum PositionStatus {
+  OPEN
+  WON
+  LOST
+  REFUNDED
+}
+
+model Position {
+  id              String         @id @default(cuid())
+  userId          String
+  user            User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  marketId        String
+  market          Market         @relation(fields: [marketId], references: [id], onDelete: Cascade)
+  outcomeId       String
+  outcome         Outcome        @relation(fields: [outcomeId], references: [id], onDelete: Cascade)
+  shares          Int
+  entryPriceCents Int
+  costCents       Int
+  status          PositionStatus @default(OPEN)
+  payoutCents     Int?
+  createdAt       DateTime       @default(now())
+
+  @@index([userId])
+  @@index([marketId])
+}

@@ -1,0 +1,22 @@
+{
+  "name": "coinflalshi",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Coinflalshi — a prediction market app powered by Coinflow payments",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev -w web",
+    "dev:mobile": "npm run start -w mobile",
+    "build": "npm run build -w @coinflalshi/db && npm run build -w web",
+    "lint": "npm run lint -w web",
+    "db:generate": "npm run generate -w @coinflalshi/db",
+    "db:push": "npm run push -w @coinflalshi/db",
+    "db:seed": "npm run seed -w @coinflalshi/db"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
