@@ -319,15 +319,18 @@ export async function getCoinflowSupportedChains() {
 export async function createCoinflowDepositAddress({
   sessionKey,
   chain,
+  email,
 }: {
   sessionKey: string;
   chain: string;
+  /** Required by Coinflow — used for Glide's refund emails on this address. */
+  email: string;
 }) {
   return coinflowFetch<{depositAddress: string; chain: string; status: string}>({
     path: `/api/checkout/crypto-deposit-address/${coinflowConfig.merchantId}`,
     method: 'POST',
     headers: {'x-coinflow-auth-session-key': sessionKey},
-    body: {chain},
+    body: {chain, email},
   });
 }
 

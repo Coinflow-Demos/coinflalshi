@@ -29,10 +29,15 @@ export async function POST(request: Request) {
     return NextResponse.json({address: existing.address, chain, token});
   }
 
+  const user = await db.user.findUnique({where: {id: userId}, select: {email: true}});
+  if (!user) {
+    return NextResponse.json({error: 'User not found'}, {status: 404});
+  }
+
   let depositAddress: string;
   try {
     const sessionKey = await getCoinflowSessionKey({userId});
-    ({depositAddress} = await createCoinflowDepositAddress({sessionKey, chain}));
+    ({depositAddress} = await createCoinflowDepositAddress({sessionKey, chain, email: user.email}));
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Coinflow request failed';
     return NextResponse.json({error: message}, {status: 502});

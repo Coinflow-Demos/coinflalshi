@@ -9,8 +9,11 @@ interface CoinflowWebhookPacket {
   created: string;
   data: {
     id?: string;
+    paymentId?: string;
     subtotal?: {cents: number; currency: string};
     total?: {cents: number; currency: string};
+    amount?: {cents: number; currency: string};
+    customerId?: string;
     webhookInfo?: {pendingTransactionId?: string; userId?: string} | null;
   };
 }
@@ -21,6 +24,14 @@ const FAILURE_EVENT_TYPES = new Set([
   'Failed',
   'Auth Declined',
 ]);
+
+// Passive crypto deposits never go through our checkout/init routes (there's
+// no pendingTransactionId to attach webhookInfo to), so this event carries
+// a completely different shape than card payments — notably `paymentId`
+// instead of `id`, and a `customerId` that IS our internal userId, since
+// that's exactly what we pass as x-coinflow-auth-user-id when the deposit
+// address was created.
+const CRYPTO_PAYIN_EVENT_TYPE = 'Crypto Payin Funds Received';
 
 export async function POST(request: Request) {
   const rawBody = await request.text();
@@ -40,6 +51,10 @@ export async function POST(request: Request) {
   }
 
   const packet = JSON.parse(rawBody) as CoinflowWebhookPacket;
+
+  if (packet.eventType === CRYPTO_PAYIN_EVENT_TYPE) {
+    return handleCryptoPayinFundsReceived(packet);
+  }
 
   if (packet.category !== 'Purchase') {
     // Withdraw/subscription events aren't wired up to ledger updates yet.
@@ -78,6 +93,46 @@ export async function POST(request: Request) {
       data: {status: 'FAILED', coinflowPaymentId},
     });
   }
+
+  return NextResponse.json({received: true});
+}
+
+async function handleCryptoPayinFundsReceived(packet: CoinflowWebhookPacket) {
+  const coinflowPaymentId = packet.data.paymentId;
+  const userId = packet.data.customerId;
+  const creditedCents = packet.data.amount?.cents;
+
+  if (!coinflowPaymentId || !userId || !creditedCents) {
+    return NextResponse.json({received: true});
+  }
+
+  // Idempotent — webhooks can be retried/duplicated by Coinflow.
+  const existing = await db.transaction.findUnique({where: {coinflowPaymentId}});
+  if (existing) {
+    return NextResponse.json({received: true});
+  }
+
+  const wallet = await db.wallet.findUnique({where: {userId}});
+  if (!wallet) {
+    return NextResponse.json({received: true});
+  }
+
+  await db.$transaction(async (tx) => {
+    await tx.transaction.create({
+      data: {
+        userId,
+        type: 'DEPOSIT',
+        status: 'COMPLETED',
+        amountCents: creditedCents,
+        method: 'CRYPTO',
+        coinflowPaymentId,
+      },
+    });
+    await tx.wallet.update({
+      where: {userId},
+      data: {balanceCents: {increment: creditedCents}},
+    });
+  });
 
   return NextResponse.json({received: true});
 }
