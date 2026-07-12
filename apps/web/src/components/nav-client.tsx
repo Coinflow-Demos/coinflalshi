@@ -11,6 +11,7 @@ import {formatCents, cn} from '@/lib/utils';
 
 const NAV_LINKS = [
   {href: '/', label: 'Markets'},
+  {href: '/markets/create', label: 'Create'},
   {href: '/portfolio', label: 'Portfolio'},
 ];
 

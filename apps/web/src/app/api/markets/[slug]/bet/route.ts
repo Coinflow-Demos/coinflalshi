@@ -1,6 +1,6 @@
 import {NextResponse} from 'next/server';
 import {z} from 'zod';
-import {db} from '@coinflalshi/db';
+import {db, getCurrentPriceCents, nudgePricesForTrade} from '@coinflalshi/db';
 import {getCurrentUserId} from '@/lib/current-user';
 
 const betSchema = z.object({
@@ -41,11 +41,16 @@ export async function POST(
     return NextResponse.json({error: 'Outcome not found on this market'}, {status: 404});
   }
 
-  const shares = Math.floor(amountCents / outcome.priceCents);
+  const currentPriceCents = await getCurrentPriceCents({
+    outcomeId,
+    fallbackCents: outcome.priceCents,
+  });
+
+  const shares = Math.floor(amountCents / currentPriceCents);
   if (shares < 1) {
     return NextResponse.json({error: 'Amount too small to buy a share'}, {status: 400});
   }
-  const costCents = shares * outcome.priceCents;
+  const costCents = shares * currentPriceCents;
 
   try {
     const position = await db.$transaction(async (tx) => {
@@ -81,10 +86,18 @@ export async function POST(
           marketId: market.id,
           outcomeId,
           shares,
-          entryPriceCents: outcome.priceCents,
+          entryPriceCents: currentPriceCents,
           costCents,
         },
       });
+    });
+
+    await nudgePricesForTrade({
+      outcomes: market.outcomes.map((o) =>
+        o.id === outcomeId ? {...o, priceCents: currentPriceCents} : o
+      ),
+      boughtOutcomeId: outcomeId,
+      shares,
     });
 
     return NextResponse.json({position});

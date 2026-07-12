@@ -116,19 +116,59 @@ model Market {
   createdAt         DateTime     @default(now())
   outcomes          Outcome[]
   positions         Position[]
+  activity          MarketActivity[]
+
+  // Null for the built-in/template-spawned markets; set for
+  // user-submitted ones (Manifold-style "anyone can create a market").
+  creatorId   String?
+  creatorName String?
 
   @@index([status, resolvesAt])
 }
 
+// Simulated third-party trade activity — not tied to real users or the
+// wallet ledger. Generated alongside a market's price history purely to
+// make volume and a "recent trades" feed look like a live, populated
+// market instead of an empty one with a single real trader.
+model MarketActivity {
+  id          String   @id @default(cuid())
+  marketId    String
+  market      Market   @relation(fields: [marketId], references: [id], onDelete: Cascade)
+  outcomeId   String
+  traderName  String
+  shares      Int
+  priceCents  Int
+  at          DateTime @default(now())
+
+  @@index([marketId, at])
+}
+
 model Outcome {
-  id         String     @id @default(cuid())
+  id         String       @id @default(cuid())
   marketId   String
-  market     Market     @relation(fields: [marketId], references: [id], onDelete: Cascade)
+  market     Market       @relation(fields: [marketId], references: [id], onDelete: Cascade)
   label      String
   priceCents Int
   positions  Position[]
+  pricePoints PricePoint[]
 
   @@index([marketId])
+}
+
+// Time series of an outcome's price. Seeded with a full synthetic random
+// walk at market creation (see createMarket.ts) so charts have realistic
+// movement from the moment a market appears, and appended to whenever a
+// trade nudges the price. Readers filter to `at <= now` so a market's chart
+// only ever reveals price history up to the present, even though the whole
+// walk is precomputed.
+model PricePoint {
+  id         String   @id @default(cuid())
+  outcomeId  String
+  outcome    Outcome  @relation(fields: [outcomeId], references: [id], onDelete: Cascade)
+  priceCents Int
+  at         DateTime @default(now())
+
+  @@index([outcomeId, at])
 }
 
 enum PositionStatus {

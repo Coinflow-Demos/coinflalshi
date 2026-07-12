@@ -15,6 +15,31 @@ function pickWeightedOutcome<T extends {priceCents: number}>(
   return outcomes[outcomes.length - 1];
 }
 
+/** The seed `priceCents` column only reflects the outcome's price at market
+ * creation — resolution should weight by wherever the price actually ended
+ * up after its full random walk (and any trade-driven nudges). */
+async function withLatestPrices<T extends {id: string; priceCents: number}>(
+  outcomes: T[],
+  asOf: Date
+): Promise<T[]> {
+  const points = await db.pricePoint.findMany({
+    where: {outcomeId: {in: outcomes.map((o) => o.id)}, at: {lte: asOf}},
+    orderBy: {at: 'desc'},
+  });
+
+  const latestByOutcome = new Map<string, number>();
+  for (const point of points) {
+    if (!latestByOutcome.has(point.outcomeId)) {
+      latestByOutcome.set(point.outcomeId, point.priceCents);
+    }
+  }
+
+  return outcomes.map((outcome) => ({
+    ...outcome,
+    priceCents: latestByOutcome.get(outcome.id) ?? outcome.priceCents,
+  }));
+}
+
 export async function resolveMarket({marketId}: {marketId: string}) {
   const market = await db.market.findUnique({
     where: {id: marketId},
@@ -29,7 +54,8 @@ export async function resolveMarket({marketId}: {marketId: string}) {
     return {market, winningOutcome: alreadyResolved ?? market.outcomes[0]};
   }
 
-  const winningOutcome = pickWeightedOutcome(market.outcomes);
+  const outcomesWithLivePrices = await withLatestPrices(market.outcomes, new Date());
+  const winningOutcome = pickWeightedOutcome(outcomesWithLivePrices);
 
   await db.$transaction(async (tx) => {
     await tx.market.update({

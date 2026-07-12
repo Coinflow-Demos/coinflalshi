@@ -7,6 +7,7 @@ import type {Outcome} from '@coinflalshi/db';
 import {Button} from '@/components/ui/button';
 import {Input} from '@/components/ui/input';
 import {cn} from '@/lib/utils';
+import {getOutcomeColor} from '@/lib/outcome-colors';
 
 export function BuyPanel({
   marketSlug,
@@ -70,21 +71,29 @@ export function BuyPanel({
   return (
     <div className="flex flex-col gap-4">
       <div className="grid grid-cols-2 gap-2">
-        {outcomes.map((outcome) => (
-          <button
-            key={outcome.id}
-            onClick={() => setSelectedOutcomeId(outcome.id)}
-            className={cn(
-              'flex flex-col items-start gap-1 rounded-lg border px-4 py-3 text-left transition-colors',
-              selectedOutcomeId === outcome.id
-                ? 'border-primary bg-primary/10'
-                : 'border-border hover:bg-accent'
-            )}
-          >
-            <span className="text-sm font-medium">{outcome.label}</span>
-            <span className="text-lg font-bold tabular-nums">{outcome.priceCents}¢</span>
-          </button>
-        ))}
+        {outcomes.map((outcome, index) => {
+          const color = getOutcomeColor(index);
+          const selected = selectedOutcomeId === outcome.id;
+          return (
+            <button
+              key={outcome.id}
+              onClick={() => setSelectedOutcomeId(outcome.id)}
+              style={selected ? {borderColor: color, backgroundColor: `color-mix(in oklch, ${color} 12%, transparent)`} : undefined}
+              className={cn(
+                'flex flex-col items-start gap-1 rounded-lg border px-4 py-3 text-left transition-colors',
+                selected ? '' : 'border-border hover:bg-accent'
+              )}
+            >
+              <span className="flex items-center gap-1.5 text-sm font-medium">
+                <span className="h-2 w-2 rounded-full" style={{backgroundColor: color}} />
+                {outcome.label}
+              </span>
+              <span className="text-lg font-bold tabular-nums" style={{color}}>
+                {outcome.priceCents}¢
+              </span>
+            </button>
+          );
+        })}
       </div>
 
       <div>
