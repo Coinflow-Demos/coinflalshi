@@ -1,4 +1,5 @@
 import type {Metadata} from 'next';
+import Script from 'next/script';
 import {Inter, Figtree} from 'next/font/google';
 import {ThemeProvider} from '@/components/theme-provider';
 import {SessionProvider} from '@/components/session-provider';
@@ -33,6 +34,17 @@ export default function RootLayout({
       className={`${inter.variable} ${figtree.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">
+        {/* Coinflow's fraud-scoring script (sandbox partnerId, hardcoded on
+            purpose — this project never touches Coinflow production). Must
+            load on every page, not just checkout, per Coinflow's chargeback
+            protection docs, or card charges get auto-declined with a
+            generic "ad blockers" message. */}
+        <Script id="nsure-init" strategy="beforeInteractive">
+          {`window.nSureAsyncInit = function () {
+            window.nSureSDK.init({appId: '9JBW2RHC7JNJN8ZQ', partnerId: 'COINFTEST'});
+          };`}
+        </Script>
+        <Script src="https://sdk.nsureapi.com/sdk.js" strategy="beforeInteractive" />
         <ThemeProvider
           attribute="class"
           defaultTheme="dark"

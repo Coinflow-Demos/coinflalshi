@@ -4,12 +4,14 @@ import {useState} from 'react';
 import {DepositPanel} from '@/components/wallet/deposit-panel';
 import {CryptoPanel} from '@/components/wallet/crypto-panel';
 import {WithdrawPanel} from '@/components/wallet/withdraw-panel';
+import {PaymentMethodsPanel} from '@/components/wallet/payment-methods-panel';
 import {cn} from '@/lib/utils';
 
 const TABS = [
   {key: 'deposit', label: 'Deposit'},
   {key: 'crypto', label: 'Crypto'},
   {key: 'withdraw', label: 'Withdraw'},
+  {key: 'cards', label: 'Cards'},
 ] as const;
 
 type TabKey = (typeof TABS)[number]['key'];
@@ -39,6 +41,7 @@ export function WalletTabs({balanceCents}: {balanceCents: number}) {
       {active === 'deposit' && <DepositPanel />}
       {active === 'crypto' && <CryptoPanel />}
       {active === 'withdraw' && <WithdrawPanel balanceCents={balanceCents} />}
+      {active === 'cards' && <PaymentMethodsPanel />}
     </div>
   );
 }

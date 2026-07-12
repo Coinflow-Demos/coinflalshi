@@ -1,108 +1,276 @@
 'use client';
 
-import {useState} from 'react';
+import {useEffect, useRef, useState} from 'react';
 import {useRouter} from 'next/navigation';
 import {useSession} from 'next-auth/react';
-import {CoinflowPurchase, PaymentMethods, SettlementType} from '@coinflowlabs/react';
+import nextDynamic from 'next/dynamic';
+import {CoinflowCardForm, CoinflowCvvForm, type CardFormRef} from '@coinflowlabs/react';
 import {Button} from '@/components/ui/button';
 import {Input} from '@/components/ui/input';
 import {COINFLOW_CHECKOUT_THEME} from '@/lib/coinflow-theme';
+import {BillingFields, EMPTY_BILLING, type Billing} from '@/components/wallet/billing-fields';
+import {get3DsBrowserParams, getFraudProtectionDeviceId} from '@/lib/coinflow/browser-signals';
+import {cn} from '@/lib/utils';
 
-interface DepositSession {
-  sessionKey: string;
-  jwtToken: string;
-  pendingTransactionId: string;
-  merchantId: string;
-  applePayEnabled: boolean;
-  googlePayEnabled: boolean;
+// @basis-theory/web-threeds touches `window` at module load time, which
+// crashes Next's server-side render of this page entirely. It must never be
+// evaluated outside the browser — next/dynamic with ssr:false is the
+// framework-sanctioned way to guarantee that (a plain top-level import
+// cannot be deferred out of the SSR pass).
+const ThreeDsChallengeModal = nextDynamic(
+  () => import('@/components/wallet/three-ds-challenge-modal').then((mod) => mod.ThreeDsChallengeModal),
+  {ssr: false}
+);
+
+interface SavedPaymentMethod {
+  id: string;
+  brand: string;
+  last4: string;
+  expMonth: string;
+  expYear: string;
 }
+
+interface NewCardChallengeState {
+  kind: 'new-card';
+  transactionId: string;
+  creq: string;
+  url: string;
+  pendingTransactionId: string;
+  cardToken: string;
+  expMonth: string;
+  expYear: string;
+}
+
+interface SavedCardChallengeState {
+  kind: 'saved-card';
+  transactionId: string;
+  creq: string;
+  url: string;
+  pendingTransactionId: string;
+  cvvVerifiedToken: string;
+}
+
+type ChallengeState = NewCardChallengeState | SavedCardChallengeState;
 
 export function DepositPanel() {
   const router = useRouter();
   const {data: session} = useSession();
+  const cardFormRef = useRef<CardFormRef>(null);
+  const cvvFormRef = useRef<CardFormRef>(null);
+
   const [amount, setAmount] = useState('25');
-  const [zeroAuth, setZeroAuth] = useState(false);
-  const [checkout, setCheckout] = useState<DepositSession | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [billing, setBilling] = useState<Billing>({
+    ...EMPTY_BILLING,
+    email: session?.user?.email ?? '',
+  });
+  const [saveCard, setSaveCard] = useState(false);
+
+  const [savedMethods, setSavedMethods] = useState<SavedPaymentMethod[]>([]);
+  const [mode, setMode] = useState<'new' | string>('new');
+  const [savedCardToken, setSavedCardToken] = useState<string | null>(null);
+
+  const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
+  const [challenge, setChallenge] = useState<ChallengeState | null>(null);
 
   const amountCents = Math.round(Number(amount) * 100);
 
-  async function startCheckout() {
-    setLoading(true);
-    setError(null);
-    try {
-      const response = await fetch('/api/wallet/deposit/init', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({amountCents, zeroAuth}),
+  useEffect(() => {
+    fetch('/api/wallet/payment-methods')
+      .then((res) => res.json())
+      .then((data) => setSavedMethods(data.savedPaymentMethods ?? []))
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (mode === 'new') {
+      setSavedCardToken(null);
+      return;
+    }
+    setSavedCardToken(null);
+    fetch(`/api/wallet/payment-methods/${mode}`)
+      .then((res) => res.json())
+      .then((data) => setSavedCardToken(data.cardToken ?? null))
+      .catch(() => {});
+  }, [mode]);
+
+  function updateBilling<K extends keyof Billing>(key: K, value: Billing[K]) {
+    setBilling((prev) => ({...prev, [key]: value}));
+  }
+
+  async function handlePayNewCard() {
+    const {token, expMonth, expYear} = (await cardFormRef.current?.tokenize()) ?? {};
+    if (!token || !expMonth || !expYear) {
+      setError('Enter your card details before continuing');
+      return;
+    }
+
+    const response = await fetch('/api/wallet/deposit/charge', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        amountCents,
+        cardToken: token,
+        expMonth,
+        expYear,
+        billing,
+        authentication3DS: get3DsBrowserParams(),
+        deviceId: getFraudProtectionDeviceId(),
+        saveCard,
+      }),
+    });
+    const data = await response.json();
+    if (!response.ok) {
+      setError(data.error ?? 'Payment failed');
+      return;
+    }
+
+    if (data.status === 'challenge') {
+      setChallenge({
+        kind: 'new-card',
+        transactionId: data.transactionId,
+        creq: data.creq,
+        url: data.url,
+        pendingTransactionId: data.pendingTransactionId,
+        cardToken: token,
+        expMonth,
+        expYear,
       });
-      const data = await response.json();
-      if (!response.ok) {
-        setError(data.error ?? 'Could not start checkout');
-        return;
+      return;
+    }
+
+    setSuccess(true);
+  }
+
+  async function handlePaySavedCard() {
+    if (!savedCardToken) {
+      setError('Loading card — try again in a moment');
+      return;
+    }
+    const {token: cvvVerifiedToken} = (await cvvFormRef.current?.tokenize()) ?? {};
+    if (!cvvVerifiedToken) {
+      setError('Enter your CVV before continuing');
+      return;
+    }
+
+    const response = await fetch('/api/wallet/deposit/charge-saved', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        amountCents,
+        cvvVerifiedToken,
+        authentication3DS: get3DsBrowserParams(),
+        deviceId: getFraudProtectionDeviceId(),
+      }),
+    });
+    const data = await response.json();
+    if (!response.ok) {
+      setError(data.error ?? 'Payment failed');
+      return;
+    }
+
+    if (data.status === 'challenge') {
+      setChallenge({
+        kind: 'saved-card',
+        transactionId: data.transactionId,
+        creq: data.creq,
+        url: data.url,
+        pendingTransactionId: data.pendingTransactionId,
+        cvvVerifiedToken,
+      });
+      return;
+    }
+
+    setSuccess(true);
+  }
+
+  async function handlePay() {
+    setError(null);
+    setSubmitting(true);
+    try {
+      if (mode === 'new') {
+        await handlePayNewCard();
+      } else {
+        await handlePaySavedCard();
       }
-      setCheckout(data);
     } catch {
       setError('Network error — please try again');
     } finally {
-      setLoading(false);
+      setSubmitting(false);
+    }
+  }
+
+  async function handleChallengeComplete(threeDsTransactionId: string) {
+    if (!challenge) return;
+    setSubmitting(true);
+    setError(null);
+    try {
+      const deviceId = getFraudProtectionDeviceId();
+      const response =
+        challenge.kind === 'new-card'
+          ? await fetch('/api/wallet/deposit/charge/complete', {
+              method: 'POST',
+              headers: {'Content-Type': 'application/json'},
+              body: JSON.stringify({
+                pendingTransactionId: challenge.pendingTransactionId,
+                threeDsTransactionId,
+                amountCents,
+                cardToken: challenge.cardToken,
+                expMonth: challenge.expMonth,
+                expYear: challenge.expYear,
+                billing,
+                deviceId,
+                saveCard,
+              }),
+            })
+          : await fetch('/api/wallet/deposit/charge-saved/complete', {
+              method: 'POST',
+              headers: {'Content-Type': 'application/json'},
+              body: JSON.stringify({
+                pendingTransactionId: challenge.pendingTransactionId,
+                threeDsTransactionId,
+                amountCents,
+                cvvVerifiedToken: challenge.cvvVerifiedToken,
+                deviceId,
+              }),
+            });
+      const data = await response.json();
+      setChallenge(null);
+      if (!response.ok) {
+        setError(data.error ?? 'Payment failed after verification');
+        return;
+      }
+      setSuccess(true);
+    } catch {
+      setChallenge(null);
+      setError('Network error — please try again');
+    } finally {
+      setSubmitting(false);
     }
   }
 
   if (success) {
     return (
       <div className="flex flex-col items-center gap-3 py-10 text-center">
-        <p className="text-lg font-semibold">{zeroAuth ? 'Card saved' : 'Deposit received'}</p>
-        <p className="text-sm text-muted-foreground">
-          {zeroAuth
-            ? 'Your card is on file for faster checkout next time.'
-            : 'Your balance will update in a few seconds.'}
-        </p>
+        <p className="text-lg font-semibold">Deposit received</p>
+        <p className="text-sm text-muted-foreground">Your balance will update in a few seconds.</p>
         <Button onClick={() => router.refresh()}>Refresh balance</Button>
-      </div>
-    );
-  }
-
-  if (checkout) {
-    const allowedPaymentMethods = [
-      PaymentMethods.card,
-      ...(checkout.applePayEnabled ? [PaymentMethods.applePay] : []),
-      ...(checkout.googlePayEnabled ? [PaymentMethods.googlePay] : []),
-    ];
-
-    return (
-      <div className="flex flex-col gap-3">
-        <button
-          onClick={() => setCheckout(null)}
-          className="self-start text-sm text-muted-foreground underline"
-        >
-          ← Change amount
-        </button>
-        <div className="overflow-hidden rounded-xl border border-border" style={{minHeight: 520}}>
-          <CoinflowPurchase
-            merchantId={checkout.merchantId}
-            env="sandbox"
-            blockchain="user"
-            sessionKey={checkout.sessionKey}
-            jwtToken={checkout.jwtToken}
-            subtotal={{cents: zeroAuth ? 0 : amountCents}}
-            email={session?.user?.email ?? undefined}
-            webhookInfo={{pendingTransactionId: checkout.pendingTransactionId}}
-            allowedPaymentMethods={allowedPaymentMethods}
-            settlementType={SettlementType.USDC}
-            isZeroAuthorization={zeroAuth}
-            theme={COINFLOW_CHECKOUT_THEME}
-            onSuccess={() => setSuccess(true)}
-          />
-        </div>
       </div>
     );
   }
 
   return (
     <div className="flex flex-col gap-4">
+      {challenge && (
+        <ThreeDsChallengeModal
+          url={challenge.url}
+          creq={challenge.creq}
+          transactionId={challenge.transactionId}
+          onComplete={handleChallengeComplete}
+        />
+      )}
+
       <div>
         <label className="mb-1.5 block text-sm font-medium text-muted-foreground">
           Amount to deposit (USD)
@@ -126,24 +294,86 @@ export function DepositPanel() {
           </button>
         ))}
       </div>
-      <label className="flex items-center gap-2 text-sm text-muted-foreground">
-        <input
-          type="checkbox"
-          checked={zeroAuth}
-          onChange={(event) => setZeroAuth(event.target.checked)}
-          className="h-4 w-4 rounded border-input accent-primary"
-        />
-        Save this card for later instead of charging it now (zero-auth)
-      </label>
+
+      {savedMethods.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {savedMethods.map((method) => (
+            <button
+              key={method.id}
+              onClick={() => setMode(method.id)}
+              className={cn(
+                'rounded-lg border px-3 py-2 text-sm font-medium',
+                mode === method.id
+                  ? 'border-primary bg-primary/10'
+                  : 'border-border hover:bg-accent'
+              )}
+            >
+              {method.brand} •••• {method.last4}
+            </button>
+          ))}
+          <button
+            onClick={() => setMode('new')}
+            className={cn(
+              'rounded-lg border px-3 py-2 text-sm font-medium',
+              mode === 'new' ? 'border-primary bg-primary/10' : 'border-border hover:bg-accent'
+            )}
+          >
+            + New card
+          </button>
+        </div>
+      )}
+
+      {mode === 'new' ? (
+        <>
+          <BillingFields billing={billing} onChange={updateBilling} />
+
+          <div>
+            <label className="mb-1.5 block text-sm font-medium text-muted-foreground">Card</label>
+            <div className="rounded-lg border border-border bg-background px-3 py-2">
+              <CoinflowCardForm
+                ref={cardFormRef}
+                merchantId="predictionmarketmoon"
+                env="sandbox"
+                theme={COINFLOW_CHECKOUT_THEME}
+              />
+            </div>
+          </div>
+
+          <label className="flex items-center gap-2 text-sm text-muted-foreground">
+            <input
+              type="checkbox"
+              checked={saveCard}
+              onChange={(event) => setSaveCard(event.target.checked)}
+              className="h-4 w-4 rounded border-input accent-primary"
+            />
+            Save this card for future deposits
+          </label>
+        </>
+      ) : (
+        <div>
+          <label className="mb-1.5 block text-sm font-medium text-muted-foreground">
+            Re-enter your CVV to confirm
+          </label>
+          <div className="rounded-lg border border-border bg-background px-3 py-2">
+            {savedCardToken ? (
+              <CoinflowCvvForm
+                ref={cvvFormRef}
+                token={savedCardToken}
+                merchantId="predictionmarketmoon"
+                env="sandbox"
+                theme={COINFLOW_CHECKOUT_THEME}
+              />
+            ) : (
+              <p className="py-2 text-sm text-muted-foreground">Loading…</p>
+            )}
+          </div>
+        </div>
+      )}
 
       {error && <p className="text-sm text-destructive">{error}</p>}
-      <Button size="lg" disabled={loading || (!zeroAuth && amountCents < 100)} onClick={startCheckout}>
-        {loading ? 'Loading…' : zeroAuth ? 'Save card' : 'Continue to payment'}
+      <Button size="lg" disabled={submitting || amountCents < 100} onClick={handlePay}>
+        {submitting ? 'Processing…' : 'Pay'}
       </Button>
-      <p className="text-xs text-muted-foreground">
-        Card is available now. Apple Pay and Google Pay turn on automatically once configured on
-        the merchant account — no code changes needed.
-      </p>
     </div>
   );
 }

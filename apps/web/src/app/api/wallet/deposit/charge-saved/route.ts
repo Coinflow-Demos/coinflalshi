@@ -1,0 +1,68 @@
+import {NextResponse} from 'next/server';
+import {z} from 'zod';
+import {db} from '@coinflalshi/db';
+import {getCurrentUserId} from '@/lib/current-user';
+import {getCoinflowSessionKey, chargeCoinflowSavedCard} from '@/lib/coinflow/server';
+
+const chargeSchema = z.object({
+  amountCents: z.number().int().min(100).max(500_000_00),
+  cvvVerifiedToken: z.string().min(1),
+  authentication3DS: z.object({
+    colorDepth: z.number(),
+    screenHeight: z.number(),
+    screenWidth: z.number(),
+    timeZone: z.number(),
+  }),
+  deviceId: z.string().optional(),
+});
+
+export async function POST(request: Request) {
+  const userId = await getCurrentUserId(request);
+  if (!userId) {
+    return NextResponse.json({error: 'Unauthorized'}, {status: 401});
+  }
+
+  const body = await request.json().catch(() => null);
+  const parsed = chargeSchema.safeParse(body);
+  if (!parsed.success) {
+    return NextResponse.json({error: 'Invalid deposit request'}, {status: 400});
+  }
+  const {amountCents, cvvVerifiedToken, authentication3DS, deviceId} = parsed.data;
+
+  const transaction = await db.transaction.create({
+    data: {userId, type: 'DEPOSIT', status: 'PENDING', amountCents, method: 'CARD'},
+  });
+
+  try {
+    const sessionKey = await getCoinflowSessionKey({userId});
+    const result = await chargeCoinflowSavedCard({
+      sessionKey,
+      subtotalCents: amountCents,
+      cvvVerifiedToken,
+      authentication3DS,
+      pendingTransactionId: transaction.id,
+      deviceId,
+    });
+
+    if (result.status === 'challenge') {
+      return NextResponse.json({
+        status: 'challenge',
+        transactionId: result.transactionId,
+        creq: result.creq,
+        url: result.url,
+        pendingTransactionId: transaction.id,
+      });
+    }
+
+    await db.transaction.update({
+      where: {id: transaction.id},
+      data: {coinflowPaymentId: result.paymentId},
+    });
+
+    return NextResponse.json({status: 'success', pendingTransactionId: transaction.id});
+  } catch (error) {
+    await db.transaction.update({where: {id: transaction.id}, data: {status: 'FAILED'}});
+    const message = error instanceof Error ? error.message : 'Coinflow request failed';
+    return NextResponse.json({error: message}, {status: 502});
+  }
+}

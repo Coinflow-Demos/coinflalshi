@@ -1,6 +1,24 @@
 import 'server-only';
 import {coinflowConfig} from './config';
 
+/** Coinflow error bodies are sometimes a string, sometimes a structured
+ * validation object — never assume `msg`/`details` is printable as-is. */
+function describeCoinflowError({
+  data,
+  status,
+  fallback,
+}: {
+  data: unknown;
+  status: number;
+  fallback: string;
+}): string {
+  const body = (data ?? {}) as Record<string, unknown>;
+  const raw = body.msg ?? body.details ?? body.error ?? null;
+  if (typeof raw === 'string' && raw.length > 0) return raw;
+  if (raw && typeof raw === 'object') return JSON.stringify(raw);
+  return `${fallback} (${status})`;
+}
+
 async function coinflowFetch<T>({
   path,
   method = 'GET',
@@ -25,7 +43,12 @@ async function coinflowFetch<T>({
 
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
-    const message = data?.msg || data?.details || `Coinflow ${method} ${path} failed (${response.status})`;
+    const message = describeCoinflowError({
+      data,
+      status: response.status,
+      fallback: `Coinflow ${method} ${path} failed`,
+    });
+    console.error(`[coinflow] ${method} ${path} -> ${response.status}`, data);
     throw new Error(message);
   }
   return data as T;
@@ -68,6 +91,221 @@ export async function getCoinflowTotals({
     method: 'POST',
     headers: {'x-coinflow-auth-session-key': sessionKey},
     body: {subtotal: {cents: subtotalCents}, settlementType: 'USDC'},
+  });
+}
+
+export interface CardBillingInfo {
+  email: string;
+  firstName: string;
+  lastName: string;
+  address1: string;
+  city: string;
+  state: string;
+  zip: string;
+  country: string;
+}
+
+export interface ThreeDsBrowserParams {
+  colorDepth: number;
+  screenHeight: number;
+  screenWidth: number;
+  timeZone: number;
+}
+
+export type CoinflowChallengeableResult =
+  | {status: 'success'; paymentId: string}
+  | {status: 'challenge'; transactionId: string; creq: string; url: string};
+
+const moneyTopUpChargebackProtection = (subtotalCents: number) => [
+  {
+    itemClass: 'moneyTopUp',
+    quantity: 1,
+    isPresetAmount: true,
+    sellingPrice: {valueInCurrency: subtotalCents / 100, currency: 'USD'},
+    topUpAmount: {valueInCurrency: subtotalCents / 100, currency: 'USDC'},
+  },
+];
+
+/**
+ * POSTs to any of Coinflow's card-family checkout endpoints
+ * (card/token/zero-authorization) and normalizes the 3DS-challenge branch.
+ * A 412 with `transactionId` + `url` means a challenge is required — that's a
+ * normal outcome, not a failure, so it's returned as a discriminated result
+ * rather than thrown. Some providers (e.g. Basis Theory) return a
+ * redirect-style ACS challenge with everything embedded in `url` and an empty
+ * `creq`, rather than the POST-a-creq-form style Coinflow's docs show — the
+ * client renders whichever one it actually got.
+ */
+async function postCoinflowChallengeableCheckout({
+  path,
+  sessionKey,
+  deviceId,
+  body,
+}: {
+  path: string;
+  sessionKey: string;
+  deviceId?: string;
+  body: unknown;
+}): Promise<CoinflowChallengeableResult> {
+  const response = await fetch(`${coinflowConfig.apiBaseUrl}${path}`, {
+    method: 'POST',
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+      'x-coinflow-auth-session-key': sessionKey,
+      ...(deviceId ? {'x-device-id': deviceId} : {}),
+    },
+    body: JSON.stringify(body),
+    cache: 'no-store',
+  });
+
+  const data = await response.json().catch(() => ({}));
+
+  if (response.status === 412 && data.transactionId && data.url) {
+    return {status: 'challenge', transactionId: data.transactionId, creq: data.creq ?? '', url: data.url};
+  }
+
+  if (!response.ok) {
+    const message = describeCoinflowError({data, status: response.status, fallback: 'Charge failed'});
+    console.error(`[coinflow] POST ${path} -> ${response.status}`, data);
+    throw new Error(message);
+  }
+
+  return {status: 'success', paymentId: data.paymentId};
+}
+
+/** Direct card charge against POST /checkout/card/{merchantId}. */
+export async function chargeCoinflowCard({
+  sessionKey,
+  subtotalCents,
+  cardToken,
+  expMonth,
+  expYear,
+  billing,
+  authentication3DS,
+  pendingTransactionId,
+  saveCard,
+  deviceId,
+}: {
+  sessionKey: string;
+  subtotalCents: number;
+  cardToken: string;
+  expMonth: string;
+  expYear: string;
+  billing: CardBillingInfo;
+  authentication3DS: ThreeDsBrowserParams | {transactionId: string};
+  pendingTransactionId: string;
+  saveCard?: boolean;
+  /** From window.nSureSDK.getDeviceId() on the client — required for
+   * Coinflow's fraud/chargeback-protection scoring, or the charge gets
+   * auto-declined. */
+  deviceId?: string;
+}): Promise<CoinflowChallengeableResult> {
+  return postCoinflowChallengeableCheckout({
+    path: `/api/checkout/card/${coinflowConfig.merchantId}`,
+    sessionKey,
+    deviceId,
+    body: {
+      subtotal: {cents: subtotalCents},
+      webhookInfo: {pendingTransactionId},
+      authentication3DS,
+      saveCard: Boolean(saveCard),
+      card: {
+        cardToken,
+        expMonth,
+        expYear,
+        email: billing.email,
+        firstName: billing.firstName,
+        lastName: billing.lastName,
+        address1: billing.address1,
+        city: billing.city,
+        state: billing.state,
+        zip: billing.zip,
+        country: billing.country,
+      },
+      chargebackProtectionData: moneyTopUpChargebackProtection(subtotalCents),
+      settlementType: 'USDC',
+    },
+  });
+}
+
+/**
+ * Saves a card without charging it, via POST /checkout/zero-authorization/{merchantId}.
+ * Returns the same discriminated success/challenge result as a real charge.
+ */
+export async function zeroAuthorizeCoinflowCard({
+  sessionKey,
+  cardToken,
+  expMonth,
+  expYear,
+  billing,
+  authentication3DS,
+  deviceId,
+}: {
+  sessionKey: string;
+  cardToken: string;
+  expMonth: string;
+  expYear: string;
+  billing: CardBillingInfo;
+  authentication3DS: ThreeDsBrowserParams | {transactionId: string};
+  deviceId?: string;
+}): Promise<CoinflowChallengeableResult> {
+  return postCoinflowChallengeableCheckout({
+    path: `/api/checkout/zero-authorization/${coinflowConfig.merchantId}`,
+    sessionKey,
+    deviceId,
+    body: {
+      reason: 'unscheduled',
+      authentication3DS,
+      card: {
+        cardToken,
+        expMonth,
+        expYear,
+        email: billing.email,
+        firstName: billing.firstName,
+        lastName: billing.lastName,
+        address1: billing.address1,
+        city: billing.city,
+        state: billing.state,
+        zip: billing.zip,
+        country: billing.country,
+      },
+    },
+  });
+}
+
+/**
+ * Charges a previously-saved card via POST /checkout/token/{merchantId}. The
+ * token must have a fresh CVV association (see CoinflowCvvForm) or this
+ * returns a 410 asking for revalidation, surfaced as a thrown error.
+ */
+export async function chargeCoinflowSavedCard({
+  sessionKey,
+  subtotalCents,
+  cvvVerifiedToken,
+  authentication3DS,
+  pendingTransactionId,
+  deviceId,
+}: {
+  sessionKey: string;
+  subtotalCents: number;
+  cvvVerifiedToken: string;
+  authentication3DS: ThreeDsBrowserParams | {transactionId: string};
+  pendingTransactionId: string;
+  deviceId?: string;
+}): Promise<CoinflowChallengeableResult> {
+  return postCoinflowChallengeableCheckout({
+    path: `/api/checkout/token/${coinflowConfig.merchantId}`,
+    sessionKey,
+    deviceId,
+    body: {
+      subtotal: {cents: subtotalCents},
+      webhookInfo: {pendingTransactionId},
+      authentication3DS,
+      token: cvvVerifiedToken,
+      chargebackProtectionData: moneyTopUpChargebackProtection(subtotalCents),
+      settlementType: 'USDC',
+    },
   });
 }
 
