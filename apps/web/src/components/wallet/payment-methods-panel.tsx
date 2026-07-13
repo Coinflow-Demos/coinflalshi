@@ -9,8 +9,7 @@ import {COINFLOW_CHECKOUT_THEME} from '@/lib/coinflow-theme';
 import {BillingFields, EMPTY_BILLING, type Billing} from '@/components/wallet/billing-fields';
 import {get3DsBrowserParams, getFraudProtectionDeviceId} from '@/lib/coinflow/browser-signals';
 
-// See deposit-panel.tsx for why this must be ssr:false — @basis-theory/web-threeds
-// touches `window` at module load time and crashes Next's server render otherwise.
+// See deposit-panel.tsx — @basis-theory/web-threeds must be client-only.
 const ThreeDsChallengeModal = nextDynamic(
   () => import('@/components/wallet/three-ds-challenge-modal').then((mod) => mod.ThreeDsChallengeModal),
   {ssr: false}

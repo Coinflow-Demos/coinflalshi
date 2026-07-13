@@ -5,16 +5,10 @@ import {BasisTheory3ds} from '@basis-theory/web-threeds';
 
 const BT_CHALLENGE_CONTAINER_ID = 'bt-3ds-challenge-container';
 
-// Coinflow's card-family checkout endpoints return one of two challenge
-// styles on a 412:
-//  - TokenEx-style: a `creq` to POST into an iframe pointed at `url`.
-//  - Basis Theory-style: an empty `creq`, and `url` is NOT a webpage — it's
-//    a bundle of query params (acsChallengeUrl/acsTransactionId/sessionId/
-//    threeDSVersion) meant to be handed to Basis Theory's own
-//    @basis-theory/web-threeds SDK, which runs the challenge UI directly in
-//    a container on THIS page. Loading `url` as an iframe/popup 404s or gets
-//    CSP-blocked — it was never meant to be navigated to. This mirrors
-//    Coinflow's own hosted-checkout implementation (BtChallengePage.tsx).
+// A 412 from Coinflow's card endpoints means a 3DS challenge is required, in
+// one of two shapes: a `creq` to POST into an iframe at `url` (TokenEx), or
+// an empty `creq` with challenge params in `url`'s query string, handed to
+// the Basis Theory SDK to render in-page.
 export function ThreeDsChallengeModal({
   url,
   creq,

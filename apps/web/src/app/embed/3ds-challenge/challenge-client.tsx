@@ -16,15 +16,9 @@ function notifyComplete(transactionId: string) {
   window.ReactNativeWebView?.postMessage(JSON.stringify({method: 'complete', transactionId}));
 }
 
-/**
- * Native-only bridge page: the web app renders 3DS challenges inline (see
- * components/wallet/three-ds-challenge-modal.tsx), but React Native has no
- * DOM for @basis-theory/web-threeds to mount into. The mobile app instead
- * opens this page in a WebView, passing the same url/creq/transactionId as
- * query params, and this posts completion back via
- * window.ReactNativeWebView.postMessage — the same convention Coinflow's own
- * SDKs use for native bridging.
- */
+/** Bridge page for the native app: React Native has no DOM for
+ * @basis-theory/web-threeds, so mobile opens this in a WebView and gets
+ * completion back via window.ReactNativeWebView.postMessage. */
 export function ThreeDsChallengeClient() {
   const searchParams = useSearchParams();
   const url = searchParams.get('url') ?? '';

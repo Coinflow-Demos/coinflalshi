@@ -18,11 +18,6 @@ export interface PriceSeries {
 const HEIGHT = 200;
 const PADDING = {top: 8, right: 8, bottom: 8, left: 8};
 
-/**
- * Custom SVG line chart mirroring web's PriceChart (components/charts/price-chart.tsx)
- * — recharts isn't usable in React Native, so this hand-rolls the same
- * merged-timestamp, 0-100¢ domain approach with react-native-svg primitives.
- */
 export function PriceChart({series}: {series: PriceSeries[]}) {
   const [width, setWidth] = useState(0);
 

@@ -1,7 +1,5 @@
 import {db} from './client';
 
-// Simulated third-party traders — not real users, no wallet, no ledger
-// impact. Purely to make markets look actively traded instead of empty.
 const FAKE_TRADER_NAMES = [
   'Alex R.',
   'Jordan K.',
@@ -24,12 +22,6 @@ function randomTraderName(): string {
   return FAKE_TRADER_NAMES[Math.floor(Math.random() * FAKE_TRADER_NAMES.length)];
 }
 
-/**
- * Generates simulated trades spread across a market's lifetime, anchored to
- * its already-seeded price walk, and adds their notional value to
- * `Market.volumeCents` — the same trick as price history: precompute the
- * whole thing now, and readers only ever see activity with `at <= now`.
- */
 export async function seedMarketActivity({
   marketId,
   outcomes,

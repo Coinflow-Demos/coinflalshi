@@ -3,10 +3,8 @@
 import {Suspense} from 'react';
 import nextDynamic from 'next/dynamic';
 
-// @basis-theory/web-threeds touches `window` at module load time, which
-// crashes SSR — same reason deposit-panel.tsx defers it with next/dynamic.
-// Next 16 requires the ssr:false dynamic() call to live in a Client
-// Component, hence 'use client' on this page itself.
+// @basis-theory/web-threeds must be client-only; Next 16 requires the
+// ssr:false dynamic() call itself to live in a Client Component.
 const ThreeDsChallengeClient = nextDynamic(
   () => import('./challenge-client').then((mod) => mod.ThreeDsChallengeClient),
   {ssr: false}

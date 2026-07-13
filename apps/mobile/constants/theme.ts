@@ -10,8 +10,6 @@ export const colors = {
   warning: '#f59e0b',
 };
 
-// Matches web's getOutcomeColor: first two map to the classic "red line,
-// green line" binary-market look, extra outcomes cycle through the rest.
 const OUTCOME_COLORS = [colors.success, colors.destructive, colors.primary, colors.warning];
 
 export function getOutcomeColor(index: number): string {

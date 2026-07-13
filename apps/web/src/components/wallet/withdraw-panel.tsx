@@ -53,9 +53,8 @@ export function WithdrawPanel({balanceCents}: {balanceCents: number}) {
     loadAccounts();
   }, [loadAccounts]);
 
-  // Coinflow's identity verification (Persona) runs on their own timeline and
-  // doesn't push us an update — poll quietly so the "verification required"
-  // card clears on its own once it's done, without the user having to reload.
+  // Identity verification (Persona) runs on its own timeline, so poll
+  // quietly until it clears rather than requiring a manual reload.
   useEffect(() => {
     if (accounts.status !== 'verification_required') return;
     const interval = setInterval(() => loadAccounts(true), 8000);

@@ -1,20 +1,14 @@
 import 'server-only';
 import {coinflowConfig, COINFLOW_APP_BASE_URL} from './config';
 
-/**
- * Extracts the end user's real IP from the incoming request, for the
- * `x-coinflow-client-ip` header — without it, Coinflow's fraud/geolocation
- * checks see the IP of whatever server made the outbound call (our Vercel
- * function, i.e. an AWS datacenter IP), not the actual customer's.
- */
+/** The real end-user IP, forwarded to Coinflow as `x-coinflow-client-ip` so
+ * fraud/geo checks see the customer, not our server. */
 export function getClientIp(request: Request): string | undefined {
   const forwardedFor = request.headers.get('x-forwarded-for');
   if (forwardedFor) return forwardedFor.split(',')[0]?.trim();
   return request.headers.get('x-real-ip') ?? undefined;
 }
 
-/** Coinflow error bodies are sometimes a string, sometimes a structured
- * validation object — never assume `msg`/`details` is printable as-is. */
 function describeCoinflowError({
   data,
   status,
@@ -85,34 +79,6 @@ export async function getCoinflowSessionKey({
   return key;
 }
 
-/** Short-lived JWT scoped to a specific checkout amount, used by the CoinflowPurchase SDK. */
-export async function getCoinflowCheckoutJwt({subtotalCents}: {subtotalCents: number}) {
-  const {checkoutJwtToken} = await coinflowFetch<{checkoutJwtToken: string}>({
-    path: '/api/checkout/jwt-token',
-    method: 'POST',
-    headers: {Authorization: coinflowConfig.apiKey()},
-    body: {subtotal: {cents: subtotalCents}},
-  });
-  return checkoutJwtToken;
-}
-
-export async function getCoinflowTotals({
-  sessionKey,
-  subtotalCents,
-}: {
-  sessionKey: string;
-  subtotalCents: number;
-}) {
-  return coinflowFetch<{
-    card?: {total: {cents: number}; creditCardFees: {cents: number}};
-  }>({
-    path: `/api/checkout/totals/${coinflowConfig.merchantId}`,
-    method: 'POST',
-    headers: {'x-coinflow-auth-session-key': sessionKey},
-    body: {subtotal: {cents: subtotalCents}, settlementType: 'USDC'},
-  });
-}
-
 export interface CardBillingInfo {
   email: string;
   firstName: string;
@@ -149,17 +115,8 @@ interface ChargebackRecipientInfo {
   };
 }
 
-/**
- * Builds the nSure `chargebackProtectionData` cart item. Two things this
- * fixes vs. the original version: (1) `topUpAmount.currency` was `'USDC'`,
- * which isn't a real ISO 4217 code — Coinflow's own mock data generator
- * (apps/api/test/tsoa/checkout/nsureCheckout.test.ts) always uses real
- * currency codes here, so a bogus one is malformed input to the fraud
- * model. (2) `recipientInfo` was omitted entirely — without an `accountId`
- * linking repeat transactions to the same buyer, nSure can't build a stable
- * buyer history, which likely explains wildly inconsistent Buyer's
- * Profile/Cart scores between transactions from the same user.
- */
+/** Fraud-scoring cart item for a balance top-up. `recipientInfo.accountId`
+ * lets Coinflow link repeat purchases to the same buyer. */
 const moneyTopUpChargebackProtection = (subtotalCents: number, recipientInfo: ChargebackRecipientInfo) => [
   {
     itemClass: 'moneyTopUp',
@@ -173,13 +130,11 @@ const moneyTopUpChargebackProtection = (subtotalCents: number, recipientInfo: Ch
 
 /**
  * POSTs to any of Coinflow's card-family checkout endpoints
- * (card/token/zero-authorization) and normalizes the 3DS-challenge branch.
- * A 412 with `transactionId` + `url` means a challenge is required — that's a
- * normal outcome, not a failure, so it's returned as a discriminated result
- * rather than thrown. Some providers (e.g. Basis Theory) return a
- * redirect-style ACS challenge with everything embedded in `url` and an empty
- * `creq`, rather than the POST-a-creq-form style Coinflow's docs show — the
- * client renders whichever one it actually got.
+ * (card/token/zero-authorization) and normalizes the 3DS-challenge branch. A
+ * 412 with `transactionId` + `url` means a challenge is required. Some
+ * providers return a redirect-style ACS challenge in `url` with an empty
+ * `creq` instead of the POST-a-creq-form style; the client renders whichever
+ * one it got.
  */
 async function postCoinflowChallengeableCheckout({
   path,
@@ -191,10 +146,9 @@ async function postCoinflowChallengeableCheckout({
 }: {
   path: string;
   sessionKey: string;
+  /** nSure device id, from the web fraud script. */
   deviceId?: string;
-  /** Forter device token from the RN CoinflowCardForm's tokenize() response —
-   * the native SDK's fraud layer is Forter, not nSure, so mobile charges
-   * carry this instead of x-device-id. */
+  /** Forter device token, from the native CoinflowCardForm's tokenize(). */
   forterToken?: string;
   clientIp?: string;
   body: unknown;
@@ -245,9 +199,6 @@ export async function chargeCoinflowCard({
   clientIp,
 }: {
   sessionKey: string;
-  /** Our internal user id — passed as recipientInfo.accountId so nSure can
-   * link repeat transactions to the same buyer instead of scoring each one
-   * as an unlinked, anonymous purchase. */
   userId: string;
   subtotalCents: number;
   cardToken: string;
@@ -257,15 +208,8 @@ export async function chargeCoinflowCard({
   authentication3DS: ThreeDsBrowserParams | {transactionId: string};
   pendingTransactionId: string;
   saveCard?: boolean;
-  /** From window.nSureSDK.getDeviceId() on the web client — required for
-   * Coinflow's fraud/chargeback-protection scoring, or the charge gets
-   * auto-declined. */
   deviceId?: string;
-  /** From the RN CoinflowCardForm's tokenize() response — the mobile
-   * equivalent of deviceId, since native uses Forter instead of nSure. */
   forterToken?: string;
-  /** The end user's real IP (see getClientIp) — without this, Coinflow's
-   * fraud/geolocation checks see our server's IP instead of the customer's. */
   clientIp?: string;
 }): Promise<CoinflowChallengeableResult> {
   return postCoinflowChallengeableCheckout({
@@ -305,8 +249,6 @@ export async function chargeCoinflowCard({
           postalCode: billing.zip,
         },
       }),
-      // Real registered accounts, not a guest checkout — helps nSure's
-      // Buyer's Profile scoring distinguish us from anonymous purchases.
       chargebackProtectionAccountType: 'private',
       settlementType: 'USDC',
     },
@@ -367,7 +309,7 @@ export async function zeroAuthorizeCoinflowCard({
 /**
  * Charges a previously-saved card via POST /checkout/token/{merchantId}. The
  * token must have a fresh CVV association (see CoinflowCvvForm) or this
- * returns a 410 asking for revalidation, surfaced as a thrown error.
+ * returns a 410 asking for revalidation.
  */
 export async function chargeCoinflowSavedCard({
   sessionKey,
@@ -434,7 +376,6 @@ export async function createCoinflowDepositAddress({
 }: {
   sessionKey: string;
   chain: string;
-  /** Required by Coinflow — used for Glide's refund emails on this address. */
   email: string;
   clientIp?: string;
 }) {
@@ -450,14 +391,12 @@ export async function createCoinflowDepositAddress({
 }
 
 // --- Payouts (withdraws) -----------------------------------------------
-// Real flow, verified against Coinflow's own source (not just the docs):
-// 1. User links a payout method (bank via Plaid, card, PayPal, etc) through
-//    the hosted Bank Authentication UI — we never see routing/account numbers.
-// 2. We list what's linked via GET /api/withdraw ("Get Withdrawer"), which
-//    accepts the same session-key auth as checkout.
-// 3. The user picks one; we submit the payout with that method's token via
-//    POST /api/merchant/withdraws/payout/delegated, authenticated with the
-//    merchant API key (server-side only, never sent to the client).
+// 1. User links a payout method (bank/card/etc) via the hosted Bank
+//    Authentication UI — we never see routing/account numbers.
+// 2. We list what's linked via GET /api/withdraw ("Get Withdrawer").
+// 3. The user picks one; we submit the payout via
+//    POST /api/merchant/withdraws/payout/delegated (merchant-authenticated,
+//    server-side only).
 
 export type CoinflowWithdrawSpeed =
   | 'asap'
@@ -473,7 +412,7 @@ export type CoinflowWithdrawSpeed =
   | 'interac';
 
 export interface LinkedPayoutMethod {
-  /** PCI-compliant token — passed as `account` to the delegated payout call. */
+  /** PCI-compliant token, passed as `account` to the delegated payout call. */
   token: string;
   speed: CoinflowWithdrawSpeed;
   label: string;
@@ -483,14 +422,8 @@ export type CoinflowWithdrawerResult =
   | {status: 'ok'; methods: LinkedPayoutMethod[]}
   | {status: 'verification_required'; verificationLink: string};
 
-/**
- * Builds the hosted Bank Authentication UI URL. Coinflow's own merchant app
- * routes this as `/{blockchain}/link/{merchantId}` (confirmed in
- * apps/ui/core-flows/src/Routes.tsx) — the "solana" segment is just routing
- * boilerplate left over from Coinflow's wallet-first history and has no
- * bearing on card/bank-only merchants like this one. On success the iframe
- * posts a `{method: "accountLinked"}` message to window.parent.
- */
+/** Hosted Bank Authentication UI URL. Posts `{method: "accountLinked"}` to
+ * window.parent on success. */
 export function buildCoinflowBankAuthUrl({
   sessionKey,
   redirectUrl,
@@ -547,9 +480,8 @@ async function fetchWithdrawerOnce({
   });
   const data = (await response.json().catch(() => ({}))) as RawWithdrawerResponse;
 
-  // Coinflow's auth middleware throws this specific 401 when the session key
-  // is valid but no withdrawer record exists yet for this user — it has to be
-  // created via POST /api/withdraw/kyc first (see registerCoinflowWithdrawer).
+  // 401 here means the session key is valid but no withdrawer record
+  // exists yet — it has to be created via POST /api/withdraw/kyc first.
   if (response.status === 401) {
     return {status: 'no_withdrawer'};
   }
@@ -617,15 +549,8 @@ async function fetchWithdrawerOnce({
   return {status: 'ok', methods};
 }
 
-/**
- * Creates the Coinflow "withdrawer" record for this user, via POST
- * /api/withdraw/kyc — confirmed in WithdrawController's docstring
- * ("Will create a withdrawer record for the user if one does not exist").
- * Without this, GET /api/withdraw 401s with "No withdrawer associated with
- * wallet". Uses the lightweight doc-verification-style body (email +
- * country) rather than the full address/DOB form, since Coinflow will
- * itself request a 451 verification step if more is needed.
- */
+/** Creates the Coinflow "withdrawer" record for this user via POST
+ * /api/withdraw/kyc, so GET /api/withdraw stops 401ing. */
 async function registerCoinflowWithdrawer({
   sessionKey,
   email,
@@ -664,16 +589,8 @@ async function registerCoinflowWithdrawer({
   return {status: 'ok'};
 }
 
-/**
- * Lists every payout method (bank/card/PayPal/Venmo/IBAN/PIX/Interac) the
- * user has already linked, via GET /api/withdraw ("Get Withdrawer"). Uses
- * session-key auth — confirmed in Coinflow's WithdrawController that this
- * endpoint accepts `sessionKey` scope, so no separate wallet-based auth is
- * needed. Transparently registers a withdrawer record on first use (see
- * registerCoinflowWithdrawer) and retries once. A 451 (either from this call
- * or from registration) means the user must complete additional
- * KYC/verification before they can withdraw at all.
- */
+/** Lists every payout method the user has linked, via GET /api/withdraw
+ * ("Get Withdrawer"). Registers a withdrawer on first use and retries once. */
 export async function getCoinflowWithdrawer({
   sessionKey,
   email,
@@ -698,11 +615,8 @@ export async function getCoinflowWithdrawer({
   return second;
 }
 
-/**
- * Sends funds straight from the merchant's delegated settlement wallet to a
- * user's linked payout method, via POST /api/merchant/withdraws/payout/delegated.
- * Merchant-authenticated (API key) — must only ever run server-side.
- */
+/** Sends funds from the merchant's delegated settlement wallet to a user's
+ * linked payout method, via POST /api/merchant/withdraws/payout/delegated. */
 export async function submitCoinflowDelegatedPayout({
   userId,
   speed,

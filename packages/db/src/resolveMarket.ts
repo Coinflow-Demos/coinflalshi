@@ -15,9 +15,6 @@ function pickWeightedOutcome<T extends {priceCents: number}>(
   return outcomes[outcomes.length - 1];
 }
 
-/** The seed `priceCents` column only reflects the outcome's price at market
- * creation — resolution should weight by wherever the price actually ended
- * up after its full random walk (and any trade-driven nudges). */
 async function withLatestPrices<T extends {id: string; priceCents: number}>(
   outcomes: T[],
   asOf: Date

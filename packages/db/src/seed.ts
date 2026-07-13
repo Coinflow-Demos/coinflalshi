@@ -11,8 +11,6 @@ async function main() {
 
   const now = Date.now();
   for (const [index, template] of MARKET_TEMPLATES.entries()) {
-    // Stagger start times so markets resolve a few at a time rather than
-    // all at once, giving the resolution engine something to do continuously.
     const staggeredNow = new Date(now - index * 45_000);
     const market = await createMarketFromTemplate({
       template,

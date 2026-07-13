@@ -4,12 +4,9 @@ import WebView from 'react-native-webview';
 import {API_BASE_URL} from '@/lib/api';
 import {colors} from '@/constants/theme';
 
-/**
- * React Native has no DOM for @basis-theory/web-threeds to mount into, so
- * unlike web's inline ThreeDsChallengeModal, this opens the web app's
- * /embed/3ds-challenge bridge page in a WebView and waits for it to
- * postMessage completion — same trick Coinflow's own SDKs use for native.
- */
+/** React Native has no DOM for @basis-theory/web-threeds, so this opens the
+ * web app's /embed/3ds-challenge page in a WebView and waits for it to
+ * postMessage completion. */
 export function ThreeDsChallengeModal({
   url,
   creq,

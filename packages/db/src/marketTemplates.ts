@@ -8,9 +8,6 @@ export interface MarketTemplate {
   durationMinutes: number;
 }
 
-// A mix of real-world teams/events and fun invented ones, in the style of
-// Kalshi's trending markets. Prices are cents on a $1 contract (implied
-// probability). Each market resolves `durationMinutes` after creation.
 export const MARKET_TEMPLATES: MarketTemplate[] = [
   {
     slug: 'france-vs-morocco',

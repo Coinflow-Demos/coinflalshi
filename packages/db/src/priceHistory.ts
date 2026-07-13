@@ -7,9 +7,6 @@ function clampPrice(cents: number): number {
   return Math.max(MIN_PRICE_CENTS, Math.min(MAX_PRICE_CENTS, Math.round(cents)));
 }
 
-/** Bounded random walk — each step drifts a few cents, occasionally more,
- * clamped to a plausible 2-98 cent range. Produces the "real trading chart"
- * look without needing actual order flow. */
 function randomWalk({startCents, steps}: {startCents: number; steps: number}): number[] {
   const path: number[] = [startCents];
   let current = startCents;
@@ -22,12 +19,6 @@ function randomWalk({startCents, steps}: {startCents: number; steps: number}): n
   return path;
 }
 
-/**
- * Precomputes a full price path for an outcome's entire lifetime (creation
- * to resolution) and stores it up front. Readers only ever look at points
- * with `at <= now`, so the market appears to "live-update" as real time
- * passes even though nothing runs in the background.
- */
 export async function seedPriceHistory({
   outcomeId,
   basePriceCents,
@@ -52,7 +43,6 @@ export async function seedPriceHistory({
   });
 }
 
-/** Appends a live price point, e.g. when a trade nudges the market. */
 export async function recordPriceMovement({
   outcomeId,
   priceCents,
@@ -63,8 +53,6 @@ export async function recordPriceMovement({
   await db.pricePoint.create({data: {outcomeId, priceCents: clampPrice(priceCents)}});
 }
 
-/** The latest price visible as of `asOf` (defaults to now), falling back to
- * the outcome's seed price if no history exists yet. */
 export async function getCurrentPriceCents({
   outcomeId,
   fallbackCents,
@@ -81,13 +69,6 @@ export async function getCurrentPriceCents({
   return latest?.priceCents ?? fallbackCents;
 }
 
-/**
- * Nudges prices after a trade — the bought outcome ticks up proportional to
- * trade size, and the rest absorb the opposite move weighted by their
- * current price, keeping the market's total roughly stable. This is a
- * simplified market-impact model (no real order book), but it's what makes
- * the chart visibly respond to trading instead of only drifting on its own.
- */
 export async function nudgePricesForTrade({
   outcomes,
   boughtOutcomeId,

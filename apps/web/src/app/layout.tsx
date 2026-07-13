@@ -34,11 +34,8 @@ export default function RootLayout({
       className={`${inter.variable} ${figtree.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">
-        {/* Coinflow's fraud-scoring script (sandbox partnerId, hardcoded on
-            purpose — this project never touches Coinflow production). Must
-            load on every page, not just checkout, per Coinflow's chargeback
-            protection docs, or card charges get auto-declined with a
-            generic "ad blockers" message. */}
+        {/* Coinflow's nSure fraud-scoring script (sandbox partnerId) — must
+            load on every page or card charges get auto-declined. */}
         <Script id="nsure-init" strategy="beforeInteractive">
           {`window.nSureAsyncInit = function () {
             window.nSureSDK.init({appId: '9JBW2RHC7JNJN8ZQ', partnerId: 'COINFTEST'});

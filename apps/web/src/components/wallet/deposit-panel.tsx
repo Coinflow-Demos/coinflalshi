@@ -12,11 +12,8 @@ import {BillingFields, EMPTY_BILLING, type Billing} from '@/components/wallet/bi
 import {get3DsBrowserParams, getFraudProtectionDeviceId} from '@/lib/coinflow/browser-signals';
 import {cn} from '@/lib/utils';
 
-// @basis-theory/web-threeds touches `window` at module load time, which
-// crashes Next's server-side render of this page entirely. It must never be
-// evaluated outside the browser — next/dynamic with ssr:false is the
-// framework-sanctioned way to guarantee that (a plain top-level import
-// cannot be deferred out of the SSR pass).
+// @basis-theory/web-threeds touches `window` at import time, so it must be
+// loaded client-only or SSR crashes.
 const ThreeDsChallengeModal = nextDynamic(
   () => import('@/components/wallet/three-ds-challenge-modal').then((mod) => mod.ThreeDsChallengeModal),
   {ssr: false}

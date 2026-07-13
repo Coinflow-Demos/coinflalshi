@@ -3,7 +3,7 @@ import {resolveDueMarkets} from '@coinflalshi/db';
 
 function isAuthorized(request: Request) {
   const cronSecret = process.env.CRON_SECRET;
-  if (!cronSecret) return true; // not configured yet (local/dev) — allow through
+  if (!cronSecret) return true;
   return request.headers.get('authorization') === `Bearer ${cronSecret}`;
 }
 

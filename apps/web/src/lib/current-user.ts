@@ -1,10 +1,7 @@
 import {auth} from '@/auth';
 import {verifyMobileToken} from '@/lib/mobile-token';
 
-/**
- * Resolves the current user id for either a web session (cookie, via
- * Auth.js) or a mobile client (Authorization: Bearer <token>).
- */
+/** Resolves the current user from a web session cookie or a mobile Bearer token. */
 export async function getCurrentUserId(request: Request): Promise<string | null> {
   const authHeader = request.headers.get('authorization');
   if (authHeader?.startsWith('Bearer ')) {

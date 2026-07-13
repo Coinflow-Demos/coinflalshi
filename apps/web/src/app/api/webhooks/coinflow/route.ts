@@ -25,12 +25,8 @@ const FAILURE_EVENT_TYPES = new Set([
   'Auth Declined',
 ]);
 
-// Passive crypto deposits never go through our checkout/init routes (there's
-// no pendingTransactionId to attach webhookInfo to), so this event carries
-// a completely different shape than card payments — notably `paymentId`
-// instead of `id`, and a `customerId` that IS our internal userId, since
-// that's exactly what we pass as x-coinflow-auth-user-id when the deposit
-// address was created.
+// Crypto pay-ins carry a different payload shape than card payments —
+// `paymentId` instead of `id`, and `customerId` is our internal userId.
 const CRYPTO_PAYIN_EVENT_TYPE = 'Crypto Payin Funds Received';
 
 export async function POST(request: Request) {

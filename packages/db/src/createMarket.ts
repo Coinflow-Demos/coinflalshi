@@ -6,9 +6,6 @@ import {seedMarketActivity} from './marketActivity';
 
 type MarketWithOutcomes = Market & {outcomes: Outcome[]};
 
-/** Precomputes price history and simulated trade activity for a freshly
- * created market — shared by both template-spawned and user-created markets
- * so every market on the board looks equally alive. */
 async function finalizeNewMarket({
   market,
   now,
@@ -84,8 +81,6 @@ function slugify(title: string): string {
   );
 }
 
-/** Manifold-style "anyone can create a market" — same tradeable/resolvable
- * lifecycle as the built-in templates, just submitted by a real user. */
 export async function createCustomMarket({
   title,
   subtitle,

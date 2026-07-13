@@ -27,13 +27,9 @@ export function NavClient({
   const [mounted, setMounted] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
 
-  // next-themes only knows the real theme after the client mounts (it reads
-  // localStorage/media queries), so this guard avoids an SSR/client mismatch
-  // on the sun/moon icon — recommended pattern from the next-themes docs.
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => setMounted(true), []);
 
-  // Close the mobile menu on navigation so it doesn't stay open over the new page.
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => setMenuOpen(false), [pathname]);
 

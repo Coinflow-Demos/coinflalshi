@@ -6,8 +6,6 @@ import {MarketTicker} from '@/components/market-ticker';
 export const dynamic = 'force-dynamic';
 
 export default async function HomePage() {
-  // No cron/scheduler required — resolving due markets on each visit keeps
-  // the board self-refreshing without any external infrastructure.
   await resolveDueMarkets();
 
   const now = new Date();
@@ -19,9 +17,6 @@ export default async function HomePage() {
       },
     },
     orderBy: {createdAt: 'desc'},
-    // Defensive cap — the board is only ever meant to hold a couple dozen
-    // markets at a time; this just guards against ever rendering an
-    // unbounded page if something upstream misbehaves.
     take: 60,
   });
 
