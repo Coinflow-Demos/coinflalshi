@@ -34,10 +34,16 @@ export async function POST(request: Request) {
   });
 
   try {
+    const user = await db.user.findUnique({where: {id: userId}, select: {email: true, name: true}});
+    const [firstName, ...lastNameParts] = (user?.name ?? '').split(' ');
     const clientIp = getClientIp(request);
     const sessionKey = await getCoinflowSessionKey({userId, clientIp});
     const result = await chargeCoinflowSavedCard({
       sessionKey,
+      userId,
+      email: user?.email,
+      firstName: firstName || undefined,
+      lastName: lastNameParts.join(' ') || undefined,
       subtotalCents: amountCents,
       cvvVerifiedToken,
       authentication3DS,

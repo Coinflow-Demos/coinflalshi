@@ -135,13 +135,39 @@ export type CoinflowChallengeableResult =
   | {status: 'success'; paymentId: string}
   | {status: 'challenge'; transactionId: string; creq: string; url: string};
 
-const moneyTopUpChargebackProtection = (subtotalCents: number) => [
+interface ChargebackRecipientInfo {
+  accountId: string;
+  email?: string;
+  firstName?: string;
+  lastName?: string;
+  shippingAddress?: {
+    country: string;
+    state: string;
+    city: string;
+    street: string;
+    postalCode: string;
+  };
+}
+
+/**
+ * Builds the nSure `chargebackProtectionData` cart item. Two things this
+ * fixes vs. the original version: (1) `topUpAmount.currency` was `'USDC'`,
+ * which isn't a real ISO 4217 code — Coinflow's own mock data generator
+ * (apps/api/test/tsoa/checkout/nsureCheckout.test.ts) always uses real
+ * currency codes here, so a bogus one is malformed input to the fraud
+ * model. (2) `recipientInfo` was omitted entirely — without an `accountId`
+ * linking repeat transactions to the same buyer, nSure can't build a stable
+ * buyer history, which likely explains wildly inconsistent Buyer's
+ * Profile/Cart scores between transactions from the same user.
+ */
+const moneyTopUpChargebackProtection = (subtotalCents: number, recipientInfo: ChargebackRecipientInfo) => [
   {
     itemClass: 'moneyTopUp',
     quantity: 1,
     isPresetAmount: true,
     sellingPrice: {valueInCurrency: subtotalCents / 100, currency: 'USD'},
-    topUpAmount: {valueInCurrency: subtotalCents / 100, currency: 'USDC'},
+    topUpAmount: {valueInCurrency: subtotalCents / 100, currency: 'USD'},
+    recipientInfo,
   },
 ];
 
@@ -199,6 +225,7 @@ async function postCoinflowChallengeableCheckout({
 /** Direct card charge against POST /checkout/card/{merchantId}. */
 export async function chargeCoinflowCard({
   sessionKey,
+  userId,
   subtotalCents,
   cardToken,
   expMonth,
@@ -211,6 +238,10 @@ export async function chargeCoinflowCard({
   clientIp,
 }: {
   sessionKey: string;
+  /** Our internal user id — passed as recipientInfo.accountId so nSure can
+   * link repeat transactions to the same buyer instead of scoring each one
+   * as an unlinked, anonymous purchase. */
+  userId: string;
   subtotalCents: number;
   cardToken: string;
   expMonth: string;
@@ -250,7 +281,22 @@ export async function chargeCoinflowCard({
         zip: billing.zip,
         country: billing.country,
       },
-      chargebackProtectionData: moneyTopUpChargebackProtection(subtotalCents),
+      chargebackProtectionData: moneyTopUpChargebackProtection(subtotalCents, {
+        accountId: userId,
+        email: billing.email,
+        firstName: billing.firstName,
+        lastName: billing.lastName,
+        shippingAddress: {
+          country: billing.country,
+          state: billing.state,
+          city: billing.city,
+          street: billing.address1,
+          postalCode: billing.zip,
+        },
+      }),
+      // Real registered accounts, not a guest checkout — helps nSure's
+      // Buyer's Profile scoring distinguish us from anonymous purchases.
+      chargebackProtectionAccountType: 'private',
       settlementType: 'USDC',
     },
   });
@@ -311,6 +357,10 @@ export async function zeroAuthorizeCoinflowCard({
  */
 export async function chargeCoinflowSavedCard({
   sessionKey,
+  userId,
+  email,
+  firstName,
+  lastName,
   subtotalCents,
   cvvVerifiedToken,
   authentication3DS,
@@ -319,6 +369,10 @@ export async function chargeCoinflowSavedCard({
   clientIp,
 }: {
   sessionKey: string;
+  userId: string;
+  email?: string;
+  firstName?: string;
+  lastName?: string;
   subtotalCents: number;
   cvvVerifiedToken: string;
   authentication3DS: ThreeDsBrowserParams | {transactionId: string};
@@ -336,7 +390,13 @@ export async function chargeCoinflowSavedCard({
       webhookInfo: {pendingTransactionId},
       authentication3DS,
       token: cvvVerifiedToken,
-      chargebackProtectionData: moneyTopUpChargebackProtection(subtotalCents),
+      chargebackProtectionData: moneyTopUpChargebackProtection(subtotalCents, {
+        accountId: userId,
+        email,
+        firstName,
+        lastName,
+      }),
+      chargebackProtectionAccountType: 'private',
       settlementType: 'USDC',
     },
   });

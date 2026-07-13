@@ -59,6 +59,7 @@ export async function POST(request: Request) {
     const sessionKey = await getCoinflowSessionKey({userId, clientIp});
     const result = await chargeCoinflowCard({
       sessionKey,
+      userId,
       subtotalCents: amountCents,
       cardToken,
       expMonth,
