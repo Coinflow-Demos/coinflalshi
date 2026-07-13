@@ -27,6 +27,7 @@ const chargeSchema = z.object({
     timeZone: z.number(),
   }),
   deviceId: z.string().optional(),
+  forterToken: z.string().optional(),
   saveCard: z.boolean().optional(),
 });
 
@@ -41,8 +42,17 @@ export async function POST(request: Request) {
   if (!parsed.success) {
     return NextResponse.json({error: 'Invalid deposit request'}, {status: 400});
   }
-  const {amountCents, cardToken, expMonth, expYear, billing, authentication3DS, deviceId, saveCard} =
-    parsed.data;
+  const {
+    amountCents,
+    cardToken,
+    expMonth,
+    expYear,
+    billing,
+    authentication3DS,
+    deviceId,
+    forterToken,
+    saveCard,
+  } = parsed.data;
 
   const transaction = await db.transaction.create({
     data: {userId, type: 'DEPOSIT', status: 'PENDING', amountCents, method: 'CARD'},
@@ -63,6 +73,7 @@ export async function POST(request: Request) {
       pendingTransactionId: transaction.id,
       saveCard,
       deviceId,
+      forterToken,
       clientIp,
     });
 

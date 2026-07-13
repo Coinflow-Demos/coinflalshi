@@ -22,6 +22,7 @@ export default function RootLayout() {
             <Stack.Screen name="login" options={{title: 'Log in'}} />
             <Stack.Screen name="register" options={{title: 'Sign up'}} />
             <Stack.Screen name="market/[slug]" options={{title: 'Market'}} />
+            <Stack.Screen name="markets/create" options={{title: 'Create market'}} />
           </Stack>
         </AuthProvider>
       </SafeAreaProvider>

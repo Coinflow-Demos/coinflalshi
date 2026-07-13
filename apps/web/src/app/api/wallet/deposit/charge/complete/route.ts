@@ -23,6 +23,7 @@ const completeSchema = z.object({
     country: z.string().min(2).max(2),
   }),
   deviceId: z.string().optional(),
+  forterToken: z.string().optional(),
   saveCard: z.boolean().optional(),
 });
 
@@ -46,6 +47,7 @@ export async function POST(request: Request) {
     expYear,
     billing,
     deviceId,
+    forterToken,
     saveCard,
   } = parsed.data;
 
@@ -68,6 +70,7 @@ export async function POST(request: Request) {
       authentication3DS: {transactionId: threeDsTransactionId},
       pendingTransactionId,
       deviceId,
+      forterToken,
       clientIp,
     });
 

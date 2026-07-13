@@ -10,6 +10,7 @@ const completeSchema = z.object({
   amountCents: z.number().int().min(100),
   cvvVerifiedToken: z.string().min(1),
   deviceId: z.string().optional(),
+  forterToken: z.string().optional(),
 });
 
 export async function POST(request: Request) {
@@ -23,7 +24,8 @@ export async function POST(request: Request) {
   if (!parsed.success) {
     return NextResponse.json({error: 'Invalid request'}, {status: 400});
   }
-  const {pendingTransactionId, threeDsTransactionId, amountCents, cvvVerifiedToken, deviceId} = parsed.data;
+  const {pendingTransactionId, threeDsTransactionId, amountCents, cvvVerifiedToken, deviceId, forterToken} =
+    parsed.data;
 
   const transaction = await db.transaction.findUnique({where: {id: pendingTransactionId}});
   if (!transaction || transaction.userId !== userId || transaction.status !== 'PENDING') {
@@ -46,6 +48,7 @@ export async function POST(request: Request) {
       authentication3DS: {transactionId: threeDsTransactionId},
       pendingTransactionId,
       deviceId,
+      forterToken,
       clientIp,
     });
 

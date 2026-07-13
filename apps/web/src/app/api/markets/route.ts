@@ -6,10 +6,15 @@ export async function GET(request: Request) {
 
   const {searchParams} = new URL(request.url);
   const status = searchParams.get('status') ?? 'OPEN';
+  const now = new Date();
 
   const markets = await db.market.findMany({
     where: status === 'ALL' ? undefined : {status: status as 'OPEN' | 'RESOLVING' | 'RESOLVED'},
-    include: {outcomes: true},
+    include: {
+      outcomes: {
+        include: {pricePoints: {where: {at: {lte: now}}, orderBy: {at: 'asc'}}},
+      },
+    },
     orderBy: {createdAt: 'desc'},
     take: 60,
   });

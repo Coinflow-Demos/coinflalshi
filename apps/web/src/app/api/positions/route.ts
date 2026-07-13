@@ -8,9 +8,15 @@ export async function GET(request: Request) {
     return NextResponse.json({error: 'Unauthorized'}, {status: 401});
   }
 
+  const now = new Date();
   const positions = await db.position.findMany({
     where: {userId},
-    include: {market: true, outcome: true},
+    include: {
+      market: true,
+      outcome: {
+        include: {pricePoints: {where: {at: {lte: now}}, orderBy: {at: 'desc'}, take: 1}},
+      },
+    },
     orderBy: {createdAt: 'desc'},
   });
 

@@ -21,6 +21,7 @@ const completeSchema = z.object({
     country: z.string().min(2).max(2),
   }),
   deviceId: z.string().optional(),
+  forterToken: z.string().optional(),
 });
 
 export async function POST(request: Request) {
@@ -34,7 +35,7 @@ export async function POST(request: Request) {
   if (!parsed.success) {
     return NextResponse.json({error: 'Invalid request'}, {status: 400});
   }
-  const {threeDsTransactionId, cardToken, expMonth, expYear, billing, deviceId} = parsed.data;
+  const {threeDsTransactionId, cardToken, expMonth, expYear, billing, deviceId, forterToken} = parsed.data;
 
   try {
     const clientIp = getClientIp(request);
@@ -47,6 +48,7 @@ export async function POST(request: Request) {
       billing,
       authentication3DS: {transactionId: threeDsTransactionId},
       deviceId,
+      forterToken,
       clientIp,
     });
 

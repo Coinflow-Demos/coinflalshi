@@ -1,36 +1,38 @@
-import {useEffect, useState} from 'react';
-import {Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View} from 'react-native';
+import {useCallback, useEffect, useState} from 'react';
+import {Pressable, ScrollView, StyleSheet, Text, View} from 'react-native';
 import {SafeAreaView} from 'react-native-safe-area-context';
 import {router} from 'expo-router';
-import {CoinflowPurchase, PaymentMethods, SettlementType} from '@coinflowlabs/react-native';
 import {apiFetch} from '@/lib/api';
 import {useAuth} from '@/lib/auth-context';
 import {colors} from '@/constants/theme';
+import {DepositTab} from '@/components/wallet/deposit-tab';
+import {CryptoTab} from '@/components/wallet/crypto-tab';
+import {WithdrawTab} from '@/components/wallet/withdraw-tab';
+import {CardsTab} from '@/components/wallet/cards-tab';
 
-interface DepositSession {
-  sessionKey: string;
-  jwtToken: string;
-  pendingTransactionId: string;
-  merchantId: string;
-  applePayEnabled: boolean;
-  googlePayEnabled: boolean;
-}
+const TABS = [
+  {key: 'deposit', label: 'Deposit'},
+  {key: 'crypto', label: 'Crypto'},
+  {key: 'withdraw', label: 'Withdraw'},
+  {key: 'cards', label: 'Cards'},
+] as const;
+
+type TabKey = (typeof TABS)[number]['key'];
 
 export default function WalletScreen() {
-  const {token, user} = useAuth();
+  const {token} = useAuth();
+  const [active, setActive] = useState<TabKey>('deposit');
   const [balanceCents, setBalanceCents] = useState(0);
-  const [amount, setAmount] = useState('25');
-  const [checkout, setCheckout] = useState<DepositSession | null>(null);
 
-  async function loadWallet() {
+  const loadWallet = useCallback(async () => {
     if (!token) return;
     const data = await apiFetch<{balanceCents: number}>('/api/wallet', {token});
     setBalanceCents(data.balanceCents);
-  }
+  }, [token]);
 
   useEffect(() => {
     loadWallet();
-  }, [token]);
+  }, [loadWallet]);
 
   if (!token) {
     return (
@@ -43,80 +45,31 @@ export default function WalletScreen() {
     );
   }
 
-  async function startDeposit() {
-    const amountCents = Math.round(Number(amount) * 100);
-    const data = await apiFetch<DepositSession>('/api/wallet/deposit/init', {
-      method: 'POST',
-      token,
-      body: {amountCents},
-    });
-    setCheckout(data);
-  }
-
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       <ScrollView contentContainerStyle={{padding: 16}}>
         <Text style={styles.header}>Wallet</Text>
         <Text style={styles.balance}>${(balanceCents / 100).toFixed(2)}</Text>
 
-        <Text style={styles.fieldLabel}>Deposit amount (USD)</Text>
-        <TextInput
-          style={styles.input}
-          keyboardType="numeric"
-          value={amount}
-          onChangeText={setAmount}
-          placeholderTextColor={colors.muted}
-        />
-        <Pressable style={styles.actionButton} onPress={startDeposit}>
-          <Text style={styles.actionButtonText}>Add funds</Text>
-        </Pressable>
+        <View style={styles.tabBar}>
+          {TABS.map((tab) => (
+            <Pressable
+              key={tab.key}
+              onPress={() => setActive(tab.key)}
+              style={[styles.tabButton, active === tab.key && styles.tabButtonActive]}
+            >
+              <Text style={[styles.tabButtonText, active === tab.key && styles.tabButtonTextActive]}>
+                {tab.label}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
 
-        <Text style={styles.hint}>
-          Crypto deposit addresses and bank payouts are available on the Coinflalshi website.
-        </Text>
+        {active === 'deposit' && <DepositTab onDeposited={loadWallet} />}
+        {active === 'crypto' && <CryptoTab onDeposited={loadWallet} />}
+        {active === 'withdraw' && <WithdrawTab balanceCents={balanceCents} />}
+        {active === 'cards' && <CardsTab />}
       </ScrollView>
-
-      <Modal visible={!!checkout} animationType="slide">
-        <SafeAreaView style={{flex: 1, backgroundColor: '#fff'}}>
-          <Pressable style={styles.closeModal} onPress={() => setCheckout(null)}>
-            <Text style={{color: colors.primary, fontWeight: '600'}}>Close</Text>
-          </Pressable>
-          {checkout && (
-            <CoinflowPurchase
-              style={{flex: 1}}
-              env="sandbox"
-              merchantId={checkout.merchantId}
-              blockchain="user"
-              sessionKey={checkout.sessionKey}
-              jwtToken={checkout.jwtToken}
-              subtotal={{cents: Math.round(Number(amount) * 100)}}
-              email={user?.email}
-              webhookInfo={{pendingTransactionId: checkout.pendingTransactionId}}
-              settlementType={SettlementType.USDC}
-              allowedPaymentMethods={[
-                PaymentMethods.card,
-                ...(checkout.applePayEnabled ? [PaymentMethods.applePay] : []),
-                ...(checkout.googlePayEnabled ? [PaymentMethods.googlePay] : []),
-              ]}
-              theme={{
-                primary: colors.primary,
-                ctaColor: colors.primary,
-                background: '#ffffff',
-                backgroundAccent: '#F3F4F6',
-                backgroundAccent2: '#E4E7EB',
-                textColor: '#05092E',
-                textColorAccent: '#030712',
-                textColorAction: '#ffffff',
-                font: 'Inter',
-              }}
-              onSuccess={() => {
-                setCheckout(null);
-                loadWallet();
-              }}
-            />
-          )}
-        </SafeAreaView>
-      </Modal>
     </SafeAreaView>
   );
 }
@@ -126,26 +79,12 @@ const styles = StyleSheet.create({
   center: {flex: 1, backgroundColor: colors.background, alignItems: 'center', justifyContent: 'center', gap: 16},
   header: {fontSize: 28, fontWeight: '700', color: colors.foreground},
   balance: {fontSize: 36, fontWeight: '800', color: colors.foreground, marginTop: 4, marginBottom: 20},
-  fieldLabel: {color: colors.muted, fontSize: 13, marginBottom: 6},
-  input: {
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 10,
-    padding: 12,
-    color: colors.foreground,
-    fontSize: 16,
-  },
-  actionButton: {
-    backgroundColor: colors.primary,
-    borderRadius: 12,
-    paddingVertical: 14,
-    alignItems: 'center',
-    marginTop: 16,
-  },
-  actionButtonText: {color: '#fff', fontWeight: '700', fontSize: 16},
-  hint: {color: colors.muted, fontSize: 12, marginTop: 20, textAlign: 'center'},
+  tabBar: {flexDirection: 'row', backgroundColor: colors.card, borderRadius: 10, padding: 4, marginBottom: 20, gap: 4},
+  tabButton: {flex: 1, paddingVertical: 8, borderRadius: 8, alignItems: 'center'},
+  tabButtonActive: {backgroundColor: colors.background},
+  tabButtonText: {color: colors.muted, fontSize: 13, fontWeight: '600'},
+  tabButtonTextActive: {color: colors.foreground},
   emptyText: {color: colors.muted},
   loginButton: {backgroundColor: colors.primary, borderRadius: 10, paddingHorizontal: 20, paddingVertical: 10},
   loginButtonText: {color: '#fff', fontWeight: '700'},
-  closeModal: {padding: 16, alignItems: 'flex-end'},
 });

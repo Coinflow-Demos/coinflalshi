@@ -28,6 +28,7 @@ const saveSchema = z.object({
     timeZone: z.number(),
   }),
   deviceId: z.string().optional(),
+  forterToken: z.string().optional(),
 });
 
 export async function POST(request: Request) {
@@ -41,7 +42,7 @@ export async function POST(request: Request) {
   if (!parsed.success) {
     return NextResponse.json({error: 'Invalid request'}, {status: 400});
   }
-  const {cardToken, expMonth, expYear, billing, authentication3DS, deviceId} = parsed.data;
+  const {cardToken, expMonth, expYear, billing, authentication3DS, deviceId, forterToken} = parsed.data;
 
   try {
     const clientIp = getClientIp(request);
@@ -54,6 +55,7 @@ export async function POST(request: Request) {
       billing,
       authentication3DS,
       deviceId,
+      forterToken,
       clientIp,
     });
 

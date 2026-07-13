@@ -185,12 +185,17 @@ async function postCoinflowChallengeableCheckout({
   path,
   sessionKey,
   deviceId,
+  forterToken,
   clientIp,
   body,
 }: {
   path: string;
   sessionKey: string;
   deviceId?: string;
+  /** Forter device token from the RN CoinflowCardForm's tokenize() response —
+   * the native SDK's fraud layer is Forter, not nSure, so mobile charges
+   * carry this instead of x-device-id. */
+  forterToken?: string;
   clientIp?: string;
   body: unknown;
 }): Promise<CoinflowChallengeableResult> {
@@ -201,6 +206,7 @@ async function postCoinflowChallengeableCheckout({
       'Content-Type': 'application/json',
       'x-coinflow-auth-session-key': sessionKey,
       ...(deviceId ? {'x-device-id': deviceId} : {}),
+      ...(forterToken ? {'x-forter-token': forterToken} : {}),
       ...(clientIp ? {'x-coinflow-client-ip': clientIp} : {}),
     },
     body: JSON.stringify(body),
@@ -235,6 +241,7 @@ export async function chargeCoinflowCard({
   pendingTransactionId,
   saveCard,
   deviceId,
+  forterToken,
   clientIp,
 }: {
   sessionKey: string;
@@ -250,10 +257,13 @@ export async function chargeCoinflowCard({
   authentication3DS: ThreeDsBrowserParams | {transactionId: string};
   pendingTransactionId: string;
   saveCard?: boolean;
-  /** From window.nSureSDK.getDeviceId() on the client — required for
+  /** From window.nSureSDK.getDeviceId() on the web client — required for
    * Coinflow's fraud/chargeback-protection scoring, or the charge gets
    * auto-declined. */
   deviceId?: string;
+  /** From the RN CoinflowCardForm's tokenize() response — the mobile
+   * equivalent of deviceId, since native uses Forter instead of nSure. */
+  forterToken?: string;
   /** The end user's real IP (see getClientIp) — without this, Coinflow's
    * fraud/geolocation checks see our server's IP instead of the customer's. */
   clientIp?: string;
@@ -262,6 +272,7 @@ export async function chargeCoinflowCard({
     path: `/api/checkout/card/${coinflowConfig.merchantId}`,
     sessionKey,
     deviceId,
+    forterToken,
     clientIp,
     body: {
       subtotal: {cents: subtotalCents},
@@ -314,6 +325,7 @@ export async function zeroAuthorizeCoinflowCard({
   billing,
   authentication3DS,
   deviceId,
+  forterToken,
   clientIp,
 }: {
   sessionKey: string;
@@ -323,12 +335,14 @@ export async function zeroAuthorizeCoinflowCard({
   billing: CardBillingInfo;
   authentication3DS: ThreeDsBrowserParams | {transactionId: string};
   deviceId?: string;
+  forterToken?: string;
   clientIp?: string;
 }): Promise<CoinflowChallengeableResult> {
   return postCoinflowChallengeableCheckout({
     path: `/api/checkout/zero-authorization/${coinflowConfig.merchantId}`,
     sessionKey,
     deviceId,
+    forterToken,
     clientIp,
     body: {
       reason: 'unscheduled',
@@ -366,6 +380,7 @@ export async function chargeCoinflowSavedCard({
   authentication3DS,
   pendingTransactionId,
   deviceId,
+  forterToken,
   clientIp,
 }: {
   sessionKey: string;
@@ -378,12 +393,14 @@ export async function chargeCoinflowSavedCard({
   authentication3DS: ThreeDsBrowserParams | {transactionId: string};
   pendingTransactionId: string;
   deviceId?: string;
+  forterToken?: string;
   clientIp?: string;
 }): Promise<CoinflowChallengeableResult> {
   return postCoinflowChallengeableCheckout({
     path: `/api/checkout/token/${coinflowConfig.merchantId}`,
     sessionKey,
     deviceId,
+    forterToken,
     clientIp,
     body: {
       subtotal: {cents: subtotalCents},

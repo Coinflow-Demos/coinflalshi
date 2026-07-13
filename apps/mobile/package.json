@@ -6,6 +6,7 @@
     "@coinflowlabs/react-native": "^4.16.0",
     "@react-native-async-storage/async-storage": "2.2.0",
     "expo": "~57.0.4",
+    "expo-clipboard": "~8.0.4",
     "expo-constants": "~57.0.3",
     "expo-linking": "~57.0.2",
     "expo-router": "~57.0.4",
