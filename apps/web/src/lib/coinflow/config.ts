@@ -2,6 +2,9 @@
 // environment anywhere in this codebase, no env var that can switch to one,
 // and no code path that could ever construct a production API URL.
 export const COINFLOW_API_BASE_URL = 'https://api-sandbox.coinflow.cash';
+// The hosted UI (Bank Authentication page, etc) lives on a different sandbox
+// subdomain than the API — confirmed against Coinflow's own CspService.getAppUrl().
+export const COINFLOW_APP_BASE_URL = 'https://app-sandbox.coinflow.cash';
 export const COINFLOW_SDK_ENV = 'sandbox';
 
 function requireEnv(name: string): string {

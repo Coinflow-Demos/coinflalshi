@@ -1,5 +1,5 @@
 import 'server-only';
-import {coinflowConfig} from './config';
+import {coinflowConfig, COINFLOW_APP_BASE_URL} from './config';
 
 /** Coinflow error bodies are sometimes a string, sometimes a structured
  * validation object — never assume `msg`/`details` is printable as-is. */
@@ -335,65 +335,260 @@ export async function createCoinflowDepositAddress({
 }
 
 // --- Payouts (withdraws) -----------------------------------------------
-// These three calls are wired up against Coinflow's documented /withdraw
-// REST surface (KYC -> link a bank account -> submit the transaction), using
-// the same session-key auth pattern as checkout. The payout endpoints are
-// gated behind coinflowConfig.payoutsEnabled since they also require KYC and
-// a payout method to be enabled on the merchant dashboard first — verify the
-// exact request/response fields against /api-reference/withdraw once that's
-// turned on in the sandbox, before relying on this in production.
+// Real flow, verified against Coinflow's own source (not just the docs):
+// 1. User links a payout method (bank via Plaid, card, PayPal, etc) through
+//    the hosted Bank Authentication UI — we never see routing/account numbers.
+// 2. We list what's linked via GET /api/withdraw ("Get Withdrawer"), which
+//    accepts the same session-key auth as checkout.
+// 3. The user picks one; we submit the payout with that method's token via
+//    POST /api/merchant/withdraws/payout/delegated, authenticated with the
+//    merchant API key (server-side only, never sent to the client).
 
-export async function registerCoinflowKyc({
+export type CoinflowWithdrawSpeed =
+  | 'asap'
+  | 'same_day'
+  | 'standard'
+  | 'card'
+  | 'iban'
+  | 'pix'
+  | 'eft'
+  | 'venmo'
+  | 'paypal'
+  | 'wire'
+  | 'interac';
+
+export interface LinkedPayoutMethod {
+  /** PCI-compliant token — passed as `account` to the delegated payout call. */
+  token: string;
+  speed: CoinflowWithdrawSpeed;
+  label: string;
+}
+
+export type CoinflowWithdrawerResult =
+  | {status: 'ok'; methods: LinkedPayoutMethod[]}
+  | {status: 'verification_required'; verificationLink: string};
+
+/**
+ * Builds the hosted Bank Authentication UI URL. Coinflow's own merchant app
+ * routes this as `/{blockchain}/link/{merchantId}` (confirmed in
+ * apps/ui/core-flows/src/Routes.tsx) — the "solana" segment is just routing
+ * boilerplate left over from Coinflow's wallet-first history and has no
+ * bearing on card/bank-only merchants like this one. On success the iframe
+ * posts a `{method: "accountLinked"}` message to window.parent.
+ */
+export function buildCoinflowBankAuthUrl({
   sessionKey,
-  firstName,
-  lastName,
+  redirectUrl,
+}: {
+  sessionKey: string;
+  redirectUrl: string;
+}): string {
+  const params = new URLSearchParams({
+    sessionKey,
+    bankAccountLinkRedirect: redirectUrl,
+  });
+  return `${COINFLOW_APP_BASE_URL}/solana/link/${coinflowConfig.merchantId}?${params.toString()}`;
+}
+
+interface RawTokenAccount {
+  token: string;
+  alias?: string;
+  isDeleted?: boolean;
+}
+
+interface RawWithdrawerResponse {
+  withdrawer?: {
+    bankAccounts?: (RawTokenAccount & {last4: string; wireRoutingNumber?: string})[];
+    cards?: {token: string; last4: string; type?: string; isDeleted?: boolean}[];
+    ibans?: (RawTokenAccount & {last4: string})[];
+    efts?: (RawTokenAccount & {mask: string})[];
+    pixes?: {token: string; key: string}[];
+    venmo?: RawTokenAccount;
+    paypal?: RawTokenAccount;
+    interac?: RawTokenAccount;
+  };
+  verificationLink?: string;
+}
+
+type FetchWithdrawerResult = CoinflowWithdrawerResult | {status: 'no_withdrawer'};
+
+async function fetchWithdrawerOnce({sessionKey}: {sessionKey: string}): Promise<FetchWithdrawerResult> {
+  const response = await fetch(`${coinflowConfig.apiBaseUrl}/api/withdraw`, {
+    headers: {Accept: 'application/json', 'x-coinflow-auth-session-key': sessionKey},
+    cache: 'no-store',
+  });
+  const data = (await response.json().catch(() => ({}))) as RawWithdrawerResponse;
+
+  // Coinflow's auth middleware throws this specific 401 when the session key
+  // is valid but no withdrawer record exists yet for this user — it has to be
+  // created via POST /api/withdraw/kyc first (see registerCoinflowWithdrawer).
+  if (response.status === 401) {
+    return {status: 'no_withdrawer'};
+  }
+  if (response.status === 451) {
+    return {status: 'verification_required', verificationLink: data.verificationLink ?? ''};
+  }
+  if (!response.ok) {
+    console.error('[coinflow] GET /api/withdraw ->', response.status, data);
+    throw new Error(
+      describeCoinflowError({
+        data,
+        status: response.status,
+        fallback: 'Failed to load linked payout accounts',
+      })
+    );
+  }
+
+  const w = data.withdrawer ?? {};
+  const methods: LinkedPayoutMethod[] = [];
+
+  for (const bank of w.bankAccounts ?? []) {
+    if (bank.isDeleted) continue;
+    methods.push({
+      token: bank.token,
+      speed: bank.wireRoutingNumber ? 'wire' : 'standard',
+      label: `Bank account •••• ${bank.last4}`,
+    });
+  }
+  for (const card of w.cards ?? []) {
+    if (card.isDeleted) continue;
+    methods.push({token: card.token, speed: 'card', label: `${card.type ?? 'Card'} •••• ${card.last4}`});
+  }
+  for (const iban of w.ibans ?? []) {
+    methods.push({token: iban.token, speed: 'iban', label: `IBAN •••• ${iban.last4}`});
+  }
+  for (const eft of w.efts ?? []) {
+    if (eft.isDeleted) continue;
+    methods.push({token: eft.token, speed: 'eft', label: `Bank account •••• ${eft.mask}`});
+  }
+  for (const pix of w.pixes ?? []) {
+    methods.push({token: pix.token, speed: 'pix', label: `PIX ${pix.key}`});
+  }
+  if (w.venmo && !w.venmo.isDeleted) {
+    methods.push({
+      token: w.venmo.token,
+      speed: 'venmo',
+      label: `Venmo${w.venmo.alias ? ` (${w.venmo.alias})` : ''}`,
+    });
+  }
+  if (w.paypal && !w.paypal.isDeleted) {
+    methods.push({
+      token: w.paypal.token,
+      speed: 'paypal',
+      label: `PayPal${w.paypal.alias ? ` (${w.paypal.alias})` : ''}`,
+    });
+  }
+  if (w.interac && !w.interac.isDeleted) {
+    methods.push({
+      token: w.interac.token,
+      speed: 'interac',
+      label: `Interac${w.interac.alias ? ` (${w.interac.alias})` : ''}`,
+    });
+  }
+
+  return {status: 'ok', methods};
+}
+
+/**
+ * Creates the Coinflow "withdrawer" record for this user, via POST
+ * /api/withdraw/kyc — confirmed in WithdrawController's docstring
+ * ("Will create a withdrawer record for the user if one does not exist").
+ * Without this, GET /api/withdraw 401s with "No withdrawer associated with
+ * wallet". Uses the lightweight doc-verification-style body (email +
+ * country) rather than the full address/DOB form, since Coinflow will
+ * itself request a 451 verification step if more is needed.
+ */
+async function registerCoinflowWithdrawer({
+  sessionKey,
+  email,
+  country = 'US',
+}: {
+  sessionKey: string;
+  email: string;
+  country?: string;
+}): Promise<{status: 'ok'} | {status: 'verification_required'; verificationLink: string}> {
+  const response = await fetch(`${coinflowConfig.apiBaseUrl}/api/withdraw/kyc`, {
+    method: 'POST',
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+      'x-coinflow-auth-session-key': sessionKey,
+    },
+    body: JSON.stringify({email, country}),
+    cache: 'no-store',
+  });
+  const data = await response.json().catch(() => ({}));
+
+  if (response.status === 451) {
+    return {status: 'verification_required', verificationLink: data.verificationLink ?? ''};
+  }
+  if (!response.ok) {
+    console.error('[coinflow] POST /api/withdraw/kyc ->', response.status, data);
+    throw new Error(
+      describeCoinflowError({data, status: response.status, fallback: 'Could not register withdrawer'})
+    );
+  }
+  return {status: 'ok'};
+}
+
+/**
+ * Lists every payout method (bank/card/PayPal/Venmo/IBAN/PIX/Interac) the
+ * user has already linked, via GET /api/withdraw ("Get Withdrawer"). Uses
+ * session-key auth — confirmed in Coinflow's WithdrawController that this
+ * endpoint accepts `sessionKey` scope, so no separate wallet-based auth is
+ * needed. Transparently registers a withdrawer record on first use (see
+ * registerCoinflowWithdrawer) and retries once. A 451 (either from this call
+ * or from registration) means the user must complete additional
+ * KYC/verification before they can withdraw at all.
+ */
+export async function getCoinflowWithdrawer({
+  sessionKey,
   email,
 }: {
   sessionKey: string;
-  firstName: string;
-  lastName: string;
   email: string;
-}) {
-  return coinflowFetch<{status: string}>({
-    path: '/api/withdraw/kyc',
-    method: 'POST',
-    headers: {'x-coinflow-auth-session-key': sessionKey},
-    body: {kycUserInformation: {firstName, lastName, email}},
-  });
+}): Promise<CoinflowWithdrawerResult> {
+  const first = await fetchWithdrawerOnce({sessionKey});
+  if (first.status !== 'no_withdrawer') return first;
+
+  const registration = await registerCoinflowWithdrawer({sessionKey, email});
+  if (registration.status === 'verification_required') return registration;
+
+  const second = await fetchWithdrawerOnce({sessionKey});
+  if (second.status === 'no_withdrawer') {
+    throw new Error('Could not register a withdrawer for this account');
+  }
+  return second;
 }
 
-export async function addCoinflowBankAccount({
-  sessionKey,
-  routingNumber,
-  accountNumber,
-  accountType,
-}: {
-  sessionKey: string;
-  routingNumber: string;
-  accountNumber: string;
-  accountType: 'checking' | 'savings';
-}) {
-  return coinflowFetch<{id: string}>({
-    path: '/api/withdraw/account',
-    method: 'POST',
-    headers: {'x-coinflow-auth-session-key': sessionKey},
-    body: {routingNumber, accountNumber, accountType},
-  });
-}
-
-export async function submitCoinflowWithdrawal({
-  sessionKey,
+/**
+ * Sends funds straight from the merchant's delegated settlement wallet to a
+ * user's linked payout method, via POST /api/merchant/withdraws/payout/delegated.
+ * Merchant-authenticated (API key) — must only ever run server-side.
+ */
+export async function submitCoinflowDelegatedPayout({
+  userId,
+  speed,
+  account,
   amountCents,
-  destinationId,
+  idempotencyKey,
 }: {
-  sessionKey: string;
+  userId: string;
+  speed: CoinflowWithdrawSpeed;
+  account: string;
   amountCents: number;
-  destinationId: string;
+  idempotencyKey: string;
 }) {
-  return coinflowFetch<{id: string; status: string}>({
-    path: '/api/withdraw/transaction',
+  return coinflowFetch<{signature: string; effectiveSpeed: string}>({
+    path: '/api/merchant/withdraws/payout/delegated',
     method: 'POST',
-    headers: {'x-coinflow-auth-session-key': sessionKey},
-    body: {amountCents, destinationType: 'bank_account', destinationId, speed: 'standard'},
+    headers: {Authorization: coinflowConfig.apiKey()},
+    body: {
+      userId,
+      speed,
+      account,
+      amount: {cents: amountCents},
+      idempotencyKey,
+    },
   });
 }

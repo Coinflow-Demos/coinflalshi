@@ -3,18 +3,26 @@ import {z} from 'zod';
 import {db} from '@coinflalshi/db';
 import {getCurrentUserId} from '@/lib/current-user';
 import {coinflowConfig} from '@/lib/coinflow/config';
-import {
-  getCoinflowSessionKey,
-  registerCoinflowKyc,
-  addCoinflowBankAccount,
-  submitCoinflowWithdrawal,
-} from '@/lib/coinflow/server';
+import {submitCoinflowDelegatedPayout, type CoinflowWithdrawSpeed} from '@/lib/coinflow/server';
+
+const WITHDRAW_SPEEDS = [
+  'asap',
+  'same_day',
+  'standard',
+  'card',
+  'iban',
+  'pix',
+  'eft',
+  'venmo',
+  'paypal',
+  'wire',
+  'interac',
+] as const;
 
 const withdrawSchema = z.object({
   amountCents: z.number().int().min(100),
-  routingNumber: z.string().min(9).max(9),
-  accountNumber: z.string().min(4).max(17),
-  accountType: z.enum(['checking', 'savings']),
+  token: z.string().min(1),
+  speed: z.enum(WITHDRAW_SPEEDS),
 });
 
 export async function POST(request: Request) {
@@ -35,33 +43,21 @@ export async function POST(request: Request) {
   if (!parsed.success) {
     return NextResponse.json({error: 'Invalid withdrawal request'}, {status: 400});
   }
-  const {amountCents, routingNumber, accountNumber, accountType} = parsed.data;
+  const {amountCents, token, speed} = parsed.data;
 
-  const [user, wallet] = await Promise.all([
-    db.user.findUnique({where: {id: userId}}),
-    db.wallet.findUnique({where: {userId}}),
-  ]);
-  if (!user || !wallet || wallet.balanceCents < amountCents) {
+  const wallet = await db.wallet.findUnique({where: {userId}});
+  if (!wallet || wallet.balanceCents < amountCents) {
     return NextResponse.json({error: 'Insufficient balance'}, {status: 402});
   }
 
-  const [firstName, ...rest] = user.name.split(' ');
-  const lastName = rest.join(' ') || firstName;
-
-  let payout: {id: string; status: string};
+  let payout: {signature: string; effectiveSpeed: string};
   try {
-    const sessionKey = await getCoinflowSessionKey({userId});
-    await registerCoinflowKyc({sessionKey, firstName, lastName, email: user.email});
-    const account = await addCoinflowBankAccount({
-      sessionKey,
-      routingNumber,
-      accountNumber,
-      accountType,
-    });
-    payout = await submitCoinflowWithdrawal({
-      sessionKey,
+    payout = await submitCoinflowDelegatedPayout({
+      userId,
+      speed: speed as CoinflowWithdrawSpeed,
+      account: token,
       amountCents,
-      destinationId: account.id,
+      idempotencyKey: crypto.randomUUID(),
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Coinflow request failed';
@@ -77,8 +73,8 @@ export async function POST(request: Request) {
         status: 'PENDING',
         amountCents,
         method: 'LEDGER',
-        coinflowPaymentId: payout.id,
-        metadata: {payoutStatus: payout.status},
+        coinflowPaymentId: payout.signature,
+        metadata: {effectiveSpeed: payout.effectiveSpeed},
       },
     }),
   ]);
