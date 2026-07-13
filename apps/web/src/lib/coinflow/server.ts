@@ -1,6 +1,18 @@
 import 'server-only';
 import {coinflowConfig, COINFLOW_APP_BASE_URL} from './config';
 
+/**
+ * Extracts the end user's real IP from the incoming request, for the
+ * `x-coinflow-client-ip` header — without it, Coinflow's fraud/geolocation
+ * checks see the IP of whatever server made the outbound call (our Vercel
+ * function, i.e. an AWS datacenter IP), not the actual customer's.
+ */
+export function getClientIp(request: Request): string | undefined {
+  const forwardedFor = request.headers.get('x-forwarded-for');
+  if (forwardedFor) return forwardedFor.split(',')[0]?.trim();
+  return request.headers.get('x-real-ip') ?? undefined;
+}
+
 /** Coinflow error bodies are sometimes a string, sometimes a structured
  * validation object — never assume `msg`/`details` is printable as-is. */
 function describeCoinflowError({
@@ -55,12 +67,19 @@ async function coinflowFetch<T>({
 }
 
 /** Identifies the payer to Coinflow using our internal user id. Valid 24h. */
-export async function getCoinflowSessionKey({userId}: {userId: string}) {
+export async function getCoinflowSessionKey({
+  userId,
+  clientIp,
+}: {
+  userId: string;
+  clientIp?: string;
+}) {
   const {key} = await coinflowFetch<{key: string}>({
     path: '/api/auth/session-key',
     headers: {
       Authorization: coinflowConfig.apiKey(),
       'x-coinflow-auth-user-id': userId,
+      ...(clientIp ? {'x-coinflow-client-ip': clientIp} : {}),
     },
   });
   return key;
@@ -140,11 +159,13 @@ async function postCoinflowChallengeableCheckout({
   path,
   sessionKey,
   deviceId,
+  clientIp,
   body,
 }: {
   path: string;
   sessionKey: string;
   deviceId?: string;
+  clientIp?: string;
   body: unknown;
 }): Promise<CoinflowChallengeableResult> {
   const response = await fetch(`${coinflowConfig.apiBaseUrl}${path}`, {
@@ -154,6 +175,7 @@ async function postCoinflowChallengeableCheckout({
       'Content-Type': 'application/json',
       'x-coinflow-auth-session-key': sessionKey,
       ...(deviceId ? {'x-device-id': deviceId} : {}),
+      ...(clientIp ? {'x-coinflow-client-ip': clientIp} : {}),
     },
     body: JSON.stringify(body),
     cache: 'no-store',
@@ -186,6 +208,7 @@ export async function chargeCoinflowCard({
   pendingTransactionId,
   saveCard,
   deviceId,
+  clientIp,
 }: {
   sessionKey: string;
   subtotalCents: number;
@@ -200,11 +223,15 @@ export async function chargeCoinflowCard({
    * Coinflow's fraud/chargeback-protection scoring, or the charge gets
    * auto-declined. */
   deviceId?: string;
+  /** The end user's real IP (see getClientIp) — without this, Coinflow's
+   * fraud/geolocation checks see our server's IP instead of the customer's. */
+  clientIp?: string;
 }): Promise<CoinflowChallengeableResult> {
   return postCoinflowChallengeableCheckout({
     path: `/api/checkout/card/${coinflowConfig.merchantId}`,
     sessionKey,
     deviceId,
+    clientIp,
     body: {
       subtotal: {cents: subtotalCents},
       webhookInfo: {pendingTransactionId},
@@ -241,6 +268,7 @@ export async function zeroAuthorizeCoinflowCard({
   billing,
   authentication3DS,
   deviceId,
+  clientIp,
 }: {
   sessionKey: string;
   cardToken: string;
@@ -249,11 +277,13 @@ export async function zeroAuthorizeCoinflowCard({
   billing: CardBillingInfo;
   authentication3DS: ThreeDsBrowserParams | {transactionId: string};
   deviceId?: string;
+  clientIp?: string;
 }): Promise<CoinflowChallengeableResult> {
   return postCoinflowChallengeableCheckout({
     path: `/api/checkout/zero-authorization/${coinflowConfig.merchantId}`,
     sessionKey,
     deviceId,
+    clientIp,
     body: {
       reason: 'unscheduled',
       authentication3DS,
@@ -286,6 +316,7 @@ export async function chargeCoinflowSavedCard({
   authentication3DS,
   pendingTransactionId,
   deviceId,
+  clientIp,
 }: {
   sessionKey: string;
   subtotalCents: number;
@@ -293,11 +324,13 @@ export async function chargeCoinflowSavedCard({
   authentication3DS: ThreeDsBrowserParams | {transactionId: string};
   pendingTransactionId: string;
   deviceId?: string;
+  clientIp?: string;
 }): Promise<CoinflowChallengeableResult> {
   return postCoinflowChallengeableCheckout({
     path: `/api/checkout/token/${coinflowConfig.merchantId}`,
     sessionKey,
     deviceId,
+    clientIp,
     body: {
       subtotal: {cents: subtotalCents},
       webhookInfo: {pendingTransactionId},
@@ -320,16 +353,21 @@ export async function createCoinflowDepositAddress({
   sessionKey,
   chain,
   email,
+  clientIp,
 }: {
   sessionKey: string;
   chain: string;
   /** Required by Coinflow — used for Glide's refund emails on this address. */
   email: string;
+  clientIp?: string;
 }) {
   return coinflowFetch<{depositAddress: string; chain: string; status: string}>({
     path: `/api/checkout/crypto-deposit-address/${coinflowConfig.merchantId}`,
     method: 'POST',
-    headers: {'x-coinflow-auth-session-key': sessionKey},
+    headers: {
+      'x-coinflow-auth-session-key': sessionKey,
+      ...(clientIp ? {'x-coinflow-client-ip': clientIp} : {}),
+    },
     body: {chain, email},
   });
 }
@@ -415,13 +453,19 @@ type FetchWithdrawerResult = CoinflowWithdrawerResult | {status: 'no_withdrawer'
 async function fetchWithdrawerOnce({
   sessionKey,
   redirectUrl,
+  clientIp,
 }: {
   sessionKey: string;
   redirectUrl?: string;
+  clientIp?: string;
 }): Promise<FetchWithdrawerResult> {
   const query = redirectUrl ? `?${new URLSearchParams({redirectLink: redirectUrl}).toString()}` : '';
   const response = await fetch(`${coinflowConfig.apiBaseUrl}/api/withdraw${query}`, {
-    headers: {Accept: 'application/json', 'x-coinflow-auth-session-key': sessionKey},
+    headers: {
+      Accept: 'application/json',
+      'x-coinflow-auth-session-key': sessionKey,
+      ...(clientIp ? {'x-coinflow-client-ip': clientIp} : {}),
+    },
     cache: 'no-store',
   });
   const data = (await response.json().catch(() => ({}))) as RawWithdrawerResponse;
@@ -510,11 +554,13 @@ async function registerCoinflowWithdrawer({
   email,
   country = 'US',
   redirectUrl,
+  clientIp,
 }: {
   sessionKey: string;
   email: string;
   country?: string;
   redirectUrl?: string;
+  clientIp?: string;
 }): Promise<{status: 'ok'} | {status: 'verification_required'; verificationLink: string}> {
   const response = await fetch(`${coinflowConfig.apiBaseUrl}/api/withdraw/kyc`, {
     method: 'POST',
@@ -522,6 +568,7 @@ async function registerCoinflowWithdrawer({
       Accept: 'application/json',
       'Content-Type': 'application/json',
       'x-coinflow-auth-session-key': sessionKey,
+      ...(clientIp ? {'x-coinflow-client-ip': clientIp} : {}),
     },
     body: JSON.stringify({email, country, redirectLink: redirectUrl}),
     cache: 'no-store',
@@ -554,18 +601,20 @@ export async function getCoinflowWithdrawer({
   sessionKey,
   email,
   redirectUrl,
+  clientIp,
 }: {
   sessionKey: string;
   email: string;
   redirectUrl?: string;
+  clientIp?: string;
 }): Promise<CoinflowWithdrawerResult> {
-  const first = await fetchWithdrawerOnce({sessionKey, redirectUrl});
+  const first = await fetchWithdrawerOnce({sessionKey, redirectUrl, clientIp});
   if (first.status !== 'no_withdrawer') return first;
 
-  const registration = await registerCoinflowWithdrawer({sessionKey, email, redirectUrl});
+  const registration = await registerCoinflowWithdrawer({sessionKey, email, redirectUrl, clientIp});
   if (registration.status === 'verification_required') return registration;
 
-  const second = await fetchWithdrawerOnce({sessionKey, redirectUrl});
+  const second = await fetchWithdrawerOnce({sessionKey, redirectUrl, clientIp});
   if (second.status === 'no_withdrawer') {
     throw new Error('Could not register a withdrawer for this account');
   }
@@ -583,17 +632,22 @@ export async function submitCoinflowDelegatedPayout({
   account,
   amountCents,
   idempotencyKey,
+  clientIp,
 }: {
   userId: string;
   speed: CoinflowWithdrawSpeed;
   account: string;
   amountCents: number;
   idempotencyKey: string;
+  clientIp?: string;
 }) {
   return coinflowFetch<{signature: string; effectiveSpeed: string}>({
     path: '/api/merchant/withdraws/payout/delegated',
     method: 'POST',
-    headers: {Authorization: coinflowConfig.apiKey()},
+    headers: {
+      Authorization: coinflowConfig.apiKey(),
+      ...(clientIp ? {'x-coinflow-client-ip': clientIp} : {}),
+    },
     body: {
       userId,
       speed,

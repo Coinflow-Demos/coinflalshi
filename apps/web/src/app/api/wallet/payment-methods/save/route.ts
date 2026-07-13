@@ -2,7 +2,7 @@ import {NextResponse} from 'next/server';
 import {z} from 'zod';
 import {db} from '@coinflalshi/db';
 import {getCurrentUserId} from '@/lib/current-user';
-import {getCoinflowSessionKey, zeroAuthorizeCoinflowCard} from '@/lib/coinflow/server';
+import {getCoinflowSessionKey, zeroAuthorizeCoinflowCard, getClientIp} from '@/lib/coinflow/server';
 import {deriveCardDisplay} from '@/lib/coinflow/card-display';
 
 const billingSchema = z.object({
@@ -44,7 +44,8 @@ export async function POST(request: Request) {
   const {cardToken, expMonth, expYear, billing, authentication3DS, deviceId} = parsed.data;
 
   try {
-    const sessionKey = await getCoinflowSessionKey({userId});
+    const clientIp = getClientIp(request);
+    const sessionKey = await getCoinflowSessionKey({userId, clientIp});
     const result = await zeroAuthorizeCoinflowCard({
       sessionKey,
       cardToken,
@@ -53,6 +54,7 @@ export async function POST(request: Request) {
       billing,
       authentication3DS,
       deviceId,
+      clientIp,
     });
 
     if (result.status === 'challenge') {

@@ -1,7 +1,7 @@
 import {NextResponse} from 'next/server';
 import {db} from '@coinflalshi/db';
 import {getCurrentUserId} from '@/lib/current-user';
-import {getCoinflowSessionKey, getCoinflowWithdrawer} from '@/lib/coinflow/server';
+import {getCoinflowSessionKey, getCoinflowWithdrawer, getClientIp} from '@/lib/coinflow/server';
 
 /** Lists the user's linked payout methods (bank/card/PayPal/etc) via
  * Coinflow's Get Withdrawer endpoint, so the withdraw UI can offer them
@@ -20,11 +20,13 @@ export async function GET(request: Request) {
   const origin = new URL(request.url).origin;
 
   try {
-    const sessionKey = await getCoinflowSessionKey({userId});
+    const clientIp = getClientIp(request);
+    const sessionKey = await getCoinflowSessionKey({userId, clientIp});
     const result = await getCoinflowWithdrawer({
       sessionKey,
       email: user.email,
       redirectUrl: `${origin}/wallet?withdrawVerified=1`,
+      clientIp,
     });
     return NextResponse.json(result);
   } catch (error) {

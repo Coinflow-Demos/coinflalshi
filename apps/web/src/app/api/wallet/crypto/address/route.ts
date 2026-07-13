@@ -2,7 +2,7 @@ import {NextResponse} from 'next/server';
 import {z} from 'zod';
 import {db} from '@coinflalshi/db';
 import {getCurrentUserId} from '@/lib/current-user';
-import {getCoinflowSessionKey, createCoinflowDepositAddress} from '@/lib/coinflow/server';
+import {getCoinflowSessionKey, createCoinflowDepositAddress, getClientIp} from '@/lib/coinflow/server';
 
 const addressSchema = z.object({
   chain: z.string().min(1),
@@ -36,8 +36,9 @@ export async function POST(request: Request) {
 
   let depositAddress: string;
   try {
-    const sessionKey = await getCoinflowSessionKey({userId});
-    ({depositAddress} = await createCoinflowDepositAddress({sessionKey, chain, email: user.email}));
+    const clientIp = getClientIp(request);
+    const sessionKey = await getCoinflowSessionKey({userId, clientIp});
+    ({depositAddress} = await createCoinflowDepositAddress({sessionKey, chain, email: user.email, clientIp}));
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Coinflow request failed';
     return NextResponse.json({error: message}, {status: 502});

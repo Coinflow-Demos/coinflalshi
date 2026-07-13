@@ -1,6 +1,6 @@
 import {NextResponse} from 'next/server';
 import {getCurrentUserId} from '@/lib/current-user';
-import {getCoinflowSessionKey, buildCoinflowBankAuthUrl} from '@/lib/coinflow/server';
+import {getCoinflowSessionKey, buildCoinflowBankAuthUrl, getClientIp} from '@/lib/coinflow/server';
 
 /** Returns a hosted Bank Authentication UI URL for the current user to link
  * a payout method (bank via Plaid, card, etc). Meant to be embedded in an
@@ -13,7 +13,7 @@ export async function GET(request: Request) {
 
   const origin = new URL(request.url).origin;
   try {
-    const sessionKey = await getCoinflowSessionKey({userId});
+    const sessionKey = await getCoinflowSessionKey({userId, clientIp: getClientIp(request)});
     const url = buildCoinflowBankAuthUrl({
       sessionKey,
       redirectUrl: `${origin}/wallet?withdrawLinked=1`,

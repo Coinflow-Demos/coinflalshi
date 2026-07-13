@@ -5,6 +5,7 @@ import {getCurrentUserId} from '@/lib/current-user';
 import {
   getCoinflowSessionKey,
   getCoinflowCheckoutJwt,
+  getClientIp,
 } from '@/lib/coinflow/server';
 import {coinflowConfig, COINFLOW_SDK_ENV} from '@/lib/coinflow/config';
 
@@ -26,11 +27,12 @@ export async function POST(request: Request) {
   }
   const {amountCents, zeroAuth} = parsed.data;
 
+  const clientIp = getClientIp(request);
   let sessionKey: string;
   let checkoutJwtToken: string;
   try {
     [sessionKey, checkoutJwtToken] = await Promise.all([
-      getCoinflowSessionKey({userId}),
+      getCoinflowSessionKey({userId, clientIp}),
       getCoinflowCheckoutJwt({subtotalCents: zeroAuth ? 0 : amountCents}),
     ]);
   } catch (error) {

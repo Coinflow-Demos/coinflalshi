@@ -3,7 +3,7 @@ import {z} from 'zod';
 import {db} from '@coinflalshi/db';
 import {getCurrentUserId} from '@/lib/current-user';
 import {coinflowConfig} from '@/lib/coinflow/config';
-import {submitCoinflowDelegatedPayout, type CoinflowWithdrawSpeed} from '@/lib/coinflow/server';
+import {submitCoinflowDelegatedPayout, getClientIp, type CoinflowWithdrawSpeed} from '@/lib/coinflow/server';
 
 const WITHDRAW_SPEEDS = [
   'asap',
@@ -58,6 +58,7 @@ export async function POST(request: Request) {
       account: token,
       amountCents,
       idempotencyKey: crypto.randomUUID(),
+      clientIp: getClientIp(request),
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Coinflow request failed';

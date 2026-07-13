@@ -2,7 +2,7 @@ import {NextResponse} from 'next/server';
 import {z} from 'zod';
 import {db} from '@coinflalshi/db';
 import {getCurrentUserId} from '@/lib/current-user';
-import {getCoinflowSessionKey, chargeCoinflowSavedCard} from '@/lib/coinflow/server';
+import {getCoinflowSessionKey, chargeCoinflowSavedCard, getClientIp} from '@/lib/coinflow/server';
 
 const chargeSchema = z.object({
   amountCents: z.number().int().min(100).max(500_000_00),
@@ -34,7 +34,8 @@ export async function POST(request: Request) {
   });
 
   try {
-    const sessionKey = await getCoinflowSessionKey({userId});
+    const clientIp = getClientIp(request);
+    const sessionKey = await getCoinflowSessionKey({userId, clientIp});
     const result = await chargeCoinflowSavedCard({
       sessionKey,
       subtotalCents: amountCents,
@@ -42,6 +43,7 @@ export async function POST(request: Request) {
       authentication3DS,
       pendingTransactionId: transaction.id,
       deviceId,
+      clientIp,
     });
 
     if (result.status === 'challenge') {
