@@ -412,8 +412,15 @@ interface RawWithdrawerResponse {
 
 type FetchWithdrawerResult = CoinflowWithdrawerResult | {status: 'no_withdrawer'};
 
-async function fetchWithdrawerOnce({sessionKey}: {sessionKey: string}): Promise<FetchWithdrawerResult> {
-  const response = await fetch(`${coinflowConfig.apiBaseUrl}/api/withdraw`, {
+async function fetchWithdrawerOnce({
+  sessionKey,
+  redirectUrl,
+}: {
+  sessionKey: string;
+  redirectUrl?: string;
+}): Promise<FetchWithdrawerResult> {
+  const query = redirectUrl ? `?${new URLSearchParams({redirectLink: redirectUrl}).toString()}` : '';
+  const response = await fetch(`${coinflowConfig.apiBaseUrl}/api/withdraw${query}`, {
     headers: {Accept: 'application/json', 'x-coinflow-auth-session-key': sessionKey},
     cache: 'no-store',
   });
@@ -502,10 +509,12 @@ async function registerCoinflowWithdrawer({
   sessionKey,
   email,
   country = 'US',
+  redirectUrl,
 }: {
   sessionKey: string;
   email: string;
   country?: string;
+  redirectUrl?: string;
 }): Promise<{status: 'ok'} | {status: 'verification_required'; verificationLink: string}> {
   const response = await fetch(`${coinflowConfig.apiBaseUrl}/api/withdraw/kyc`, {
     method: 'POST',
@@ -514,7 +523,7 @@ async function registerCoinflowWithdrawer({
       'Content-Type': 'application/json',
       'x-coinflow-auth-session-key': sessionKey,
     },
-    body: JSON.stringify({email, country}),
+    body: JSON.stringify({email, country, redirectLink: redirectUrl}),
     cache: 'no-store',
   });
   const data = await response.json().catch(() => ({}));
@@ -544,17 +553,19 @@ async function registerCoinflowWithdrawer({
 export async function getCoinflowWithdrawer({
   sessionKey,
   email,
+  redirectUrl,
 }: {
   sessionKey: string;
   email: string;
+  redirectUrl?: string;
 }): Promise<CoinflowWithdrawerResult> {
-  const first = await fetchWithdrawerOnce({sessionKey});
+  const first = await fetchWithdrawerOnce({sessionKey, redirectUrl});
   if (first.status !== 'no_withdrawer') return first;
 
-  const registration = await registerCoinflowWithdrawer({sessionKey, email});
+  const registration = await registerCoinflowWithdrawer({sessionKey, email, redirectUrl});
   if (registration.status === 'verification_required') return registration;
 
-  const second = await fetchWithdrawerOnce({sessionKey});
+  const second = await fetchWithdrawerOnce({sessionKey, redirectUrl});
   if (second.status === 'no_withdrawer') {
     throw new Error('Could not register a withdrawer for this account');
   }

@@ -28,8 +28,8 @@ export function WithdrawPanel({balanceCents}: {balanceCents: number}) {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
 
-  const loadAccounts = useCallback(async () => {
-    setAccounts({status: 'loading'});
+  const loadAccounts = useCallback(async (silent = false) => {
+    if (!silent) setAccounts({status: 'loading'});
     try {
       const response = await fetch('/api/wallet/withdraw/accounts');
       const data = await response.json();
@@ -52,6 +52,15 @@ export function WithdrawPanel({balanceCents}: {balanceCents: number}) {
   useEffect(() => {
     loadAccounts();
   }, [loadAccounts]);
+
+  // Coinflow's identity verification (Persona) runs on their own timeline and
+  // doesn't push us an update — poll quietly so the "verification required"
+  // card clears on its own once it's done, without the user having to reload.
+  useEffect(() => {
+    if (accounts.status !== 'verification_required') return;
+    const interval = setInterval(() => loadAccounts(true), 8000);
+    return () => clearInterval(interval);
+  }, [accounts.status, loadAccounts]);
 
   // The Bank Authentication UI iframe posts a JSON-stringified
   // {method: "accountLinked"} message to window.parent on success.
@@ -170,16 +179,26 @@ export function WithdrawPanel({balanceCents}: {balanceCents: number}) {
         <div className="flex flex-col gap-2 rounded-lg border border-border p-4">
           <p className="text-sm font-medium">Verification required</p>
           <p className="text-sm text-muted-foreground">
-            Coinflow needs a bit more information before you can withdraw funds.
+            Coinflow needs a bit more information before you can withdraw funds. This page checks
+            automatically once you're done — or refresh manually below.
           </p>
-          <a
-            href={accounts.verificationLink}
-            target="_blank"
-            rel="noreferrer"
-            className="text-sm font-medium text-primary underline"
-          >
-            Complete verification
-          </a>
+          <div className="flex items-center gap-4">
+            <a
+              href={accounts.verificationLink}
+              target="_blank"
+              rel="noreferrer"
+              className="text-sm font-medium text-primary underline"
+            >
+              Complete verification
+            </a>
+            <button
+              type="button"
+              onClick={() => loadAccounts()}
+              className="text-sm font-medium text-muted-foreground underline"
+            >
+              Refresh
+            </button>
+          </div>
         </div>
       )}
 

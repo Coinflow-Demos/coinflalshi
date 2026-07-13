@@ -17,9 +17,15 @@ export async function GET(request: Request) {
     return NextResponse.json({error: 'User not found'}, {status: 404});
   }
 
+  const origin = new URL(request.url).origin;
+
   try {
     const sessionKey = await getCoinflowSessionKey({userId});
-    const result = await getCoinflowWithdrawer({sessionKey, email: user.email});
+    const result = await getCoinflowWithdrawer({
+      sessionKey,
+      email: user.email,
+      redirectUrl: `${origin}/wallet?withdrawVerified=1`,
+    });
     return NextResponse.json(result);
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Coinflow request failed';
