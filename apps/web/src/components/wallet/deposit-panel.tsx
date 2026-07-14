@@ -9,8 +9,11 @@ import {Button} from '@/components/ui/button';
 import {Input} from '@/components/ui/input';
 import {COINFLOW_CHECKOUT_THEME} from '@/lib/coinflow-theme';
 import {BillingFields, EMPTY_BILLING, type Billing} from '@/components/wallet/billing-fields';
+import {ApplePayButton} from '@/components/wallet/apple-pay-button';
 import {get3DsBrowserParams, getFraudProtectionDeviceId} from '@/lib/coinflow/browser-signals';
 import {cn} from '@/lib/utils';
+
+const APPLE_PAY_ENABLED = process.env.NEXT_PUBLIC_COINFLOW_APPLE_PAY_ENABLED === 'true';
 
 // @basis-theory/web-threeds touches `window` at import time, so it must be
 // loaded client-only or SSR crashes.
@@ -291,6 +294,14 @@ export function DepositPanel() {
           </button>
         ))}
       </div>
+
+      {APPLE_PAY_ENABLED && (
+        <ApplePayButton
+          amountCents={amountCents}
+          onSuccess={() => setSuccess(true)}
+          onError={(message) => message && setError(message)}
+        />
+      )}
 
       {savedMethods.length > 0 && (
         <div className="flex flex-wrap gap-2">

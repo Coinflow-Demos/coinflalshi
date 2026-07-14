@@ -361,6 +361,64 @@ export async function chargeCoinflowSavedCard({
   });
 }
 
+/** Apple Pay's merchant-validation handshake — called with the domain the
+ * Apple Pay button is running on, returns an Apple merchant session object
+ * for the client to pass to ApplePaySession.completeMerchantValidation(). */
+export async function getCoinflowApplePayMerchantSession({domainName}: {domainName: string}) {
+  return coinflowFetch<Record<string, unknown>>({
+    path: `/api/checkout/apple-pay/validatemerchant?${new URLSearchParams({
+      domainName,
+      merchantId: coinflowConfig.merchantId,
+    }).toString()}`,
+  });
+}
+
+/** Charges an Apple Pay payment via POST /checkout/v2/apple-pay/{merchantId}.
+ * Apple handles device authentication itself, so there's no 3DS challenge
+ * branch here — this always succeeds or throws. */
+export async function chargeCoinflowApplePay({
+  sessionKey,
+  userId,
+  subtotalCents,
+  applePayPayment,
+  pendingTransactionId,
+  billing,
+  deviceId,
+  clientIp,
+}: {
+  sessionKey: string;
+  userId: string;
+  subtotalCents: number;
+  applePayPayment: unknown;
+  pendingTransactionId: string;
+  billing: {email?: string; firstName?: string; lastName?: string};
+  deviceId?: string;
+  clientIp?: string;
+}) {
+  return coinflowFetch<{paymentId: string}>({
+    path: `/api/checkout/v2/apple-pay/${coinflowConfig.merchantId}`,
+    method: 'POST',
+    headers: {
+      'x-coinflow-auth-session-key': sessionKey,
+      ...(deviceId ? {'x-device-id': deviceId} : {}),
+      ...(clientIp ? {'x-coinflow-client-ip': clientIp} : {}),
+    },
+    body: {
+      subtotal: {cents: subtotalCents},
+      webhookInfo: {pendingTransactionId},
+      applePayPayment,
+      chargebackProtectionData: moneyTopUpChargebackProtection(subtotalCents, {
+        accountId: userId,
+        email: billing.email,
+        firstName: billing.firstName,
+        lastName: billing.lastName,
+      }),
+      chargebackProtectionAccountType: 'private',
+      settlementType: 'USDC',
+    },
+  });
+}
+
 export async function getCoinflowSupportedChains() {
   return coinflowFetch<{chains: string[]}>({
     path: '/api/merchant/customer-payin-addresses/supported-chains',
