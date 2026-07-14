@@ -52,9 +52,13 @@ export function ApplePayButton({
       merchantCapabilities: ['supports3DS'],
       supportedNetworks: ['visa', 'masterCard', 'amex', 'discover'],
       total: {label: 'Coinflalshi', amount: (amountCents / 100).toFixed(2)},
-      // Coinflow's checkout endpoint reads email/name/address off
-      // applePayPayment.billingContact, so all three must be requested.
+      // Coinflow reads email from shippingContact first, falling back to
+      // billingContact — but Apple Pay web only reliably populates email on
+      // shippingContact even when requested on billingContact, so we need
+      // both (this is a top-up, not a real shipment, but there's no other
+      // way to get a guaranteed email out of the payment sheet).
       requiredBillingContactFields: ['postalAddress', 'name', 'email'],
+      requiredShippingContactFields: ['email'],
     });
 
     session.onvalidatemerchant = async () => {
