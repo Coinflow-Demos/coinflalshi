@@ -10,6 +10,8 @@ import {Input} from '@/components/ui/input';
 import {COINFLOW_CHECKOUT_THEME} from '@/lib/coinflow-theme';
 import {BillingFields, EMPTY_BILLING, type Billing} from '@/components/wallet/billing-fields';
 import {ApplePayButton} from '@/components/wallet/apple-pay-button';
+import {TestCardPicker} from '@/components/wallet/test-card-picker';
+import {SandboxTestingGuide} from '@/components/wallet/sandbox-testing-guide';
 import {get3DsBrowserParams, getFraudProtectionDeviceId} from '@/lib/coinflow/browser-signals';
 import {cn} from '@/lib/utils';
 
@@ -331,6 +333,8 @@ export function DepositPanel() {
         </div>
       )}
 
+      <TestCardPicker />
+
       {mode === 'new' ? (
         <>
           <BillingFields billing={billing} onChange={updateBilling} />
@@ -382,6 +386,8 @@ export function DepositPanel() {
       <Button size="lg" disabled={submitting || amountCents < 100} onClick={handlePay}>
         {submitting ? 'Processing…' : 'Pay'}
       </Button>
+
+      <SandboxTestingGuide onSetAmount={setAmount} onSetZip={(zip) => updateBilling('zip', zip)} />
     </div>
   );
 }
