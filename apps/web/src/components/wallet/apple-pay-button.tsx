@@ -52,8 +52,9 @@ export function ApplePayButton({
       merchantCapabilities: ['supports3DS'],
       supportedNetworks: ['visa', 'masterCard', 'amex', 'discover'],
       total: {label: 'Coinflalshi', amount: (amountCents / 100).toFixed(2)},
-      // Coinflow's checkout endpoint requires applePayPayment.billingContact.
-      requiredBillingContactFields: ['postalAddress', 'name'],
+      // Coinflow's checkout endpoint reads email/name/address off
+      // applePayPayment.billingContact, so all three must be requested.
+      requiredBillingContactFields: ['postalAddress', 'name', 'email'],
     });
 
     session.onvalidatemerchant = async () => {
