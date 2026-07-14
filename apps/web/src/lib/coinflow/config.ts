@@ -14,7 +14,5 @@ export const coinflowConfig = {
   apiKey: () => requireEnv('COINFLOW_API_KEY'),
   webhookValidationKey: () => requireEnv('COINFLOW_WEBHOOK_VALIDATION_KEY'),
   apiBaseUrl: COINFLOW_API_BASE_URL,
-  applePayEnabled: process.env.NEXT_PUBLIC_COINFLOW_APPLE_PAY_ENABLED === 'true',
-  googlePayEnabled: process.env.NEXT_PUBLIC_COINFLOW_GOOGLE_PAY_ENABLED === 'true',
   payoutsEnabled: process.env.COINFLOW_PAYOUTS_ENABLED === 'true',
 };

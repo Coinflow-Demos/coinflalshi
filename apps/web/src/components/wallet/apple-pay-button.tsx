@@ -53,10 +53,9 @@ export function ApplePayButton({
       supportedNetworks: ['visa', 'masterCard', 'amex', 'discover'],
       total: {label: 'Coinflalshi', amount: (amountCents / 100).toFixed(2)},
       // Coinflow reads email from shippingContact first, falling back to
-      // billingContact — but Apple Pay web only reliably populates email on
-      // shippingContact even when requested on billingContact, so we need
-      // both (this is a top-up, not a real shipment, but there's no other
-      // way to get a guaranteed email out of the payment sheet).
+      // billingContact — but Apple Pay web only reliably fills in email on
+      // shippingContact, so both are requested even though this isn't a
+      // real shipment.
       requiredBillingContactFields: ['postalAddress', 'name', 'email'],
       requiredShippingContactFields: ['email'],
     });
