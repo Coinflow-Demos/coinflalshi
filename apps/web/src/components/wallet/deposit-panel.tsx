@@ -10,12 +10,14 @@ import {Input} from '@/components/ui/input';
 import {COINFLOW_CHECKOUT_THEME} from '@/lib/coinflow-theme';
 import {BillingFields, EMPTY_BILLING, type Billing} from '@/components/wallet/billing-fields';
 import {ApplePayButton} from '@/components/wallet/apple-pay-button';
+import {GooglePayButton, type GooglePaymentData} from '@/components/wallet/google-pay-button';
 import {TestCardPicker} from '@/components/wallet/test-card-picker';
 import {SandboxTestingGuide} from '@/components/wallet/sandbox-testing-guide';
 import {get3DsBrowserParams, getFraudProtectionDeviceId} from '@/lib/coinflow/browser-signals';
 import {cn} from '@/lib/utils';
 
 const APPLE_PAY_ENABLED = process.env.NEXT_PUBLIC_COINFLOW_APPLE_PAY_ENABLED === 'true';
+const GOOGLE_PAY_ENABLED = process.env.NEXT_PUBLIC_COINFLOW_GOOGLE_PAY_ENABLED === 'true';
 
 // @basis-theory/web-threeds touches `window` at import time, so it must be
 // loaded client-only or SSR crashes.
@@ -75,6 +77,8 @@ export function DepositPanel() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
   const [challenge, setChallenge] = useState<ChallengeState | null>(null);
+  const [applePayReady, setApplePayReady] = useState(false);
+  const [googlePayReady, setGooglePayReady] = useState(false);
 
   const amountCents = Math.round(Number(amount) * 100);
 
@@ -185,6 +189,33 @@ export function DepositPanel() {
     }
 
     setSuccess(true);
+  }
+
+  async function handleGooglePay(paymentData: GooglePaymentData) {
+    setError(null);
+    setSubmitting(true);
+    try {
+      const response = await fetch('/api/wallet/deposit/google-pay', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          amountCents,
+          paymentData,
+          authentication3DS: get3DsBrowserParams(),
+          deviceId: getFraudProtectionDeviceId(),
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        setError(data.error ?? 'Payment failed');
+        return;
+      }
+      setSuccess(true);
+    } catch {
+      setError('Network error — please try again');
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   async function handlePay() {
@@ -302,7 +333,26 @@ export function DepositPanel() {
           amountCents={amountCents}
           onSuccess={() => setSuccess(true)}
           onError={(message) => message && setError(message)}
+          onReady={setApplePayReady}
         />
+      )}
+      {GOOGLE_PAY_ENABLED && (
+        <GooglePayButton
+          amountCents={amountCents}
+          disabled={submitting}
+          onPaymentData={handleGooglePay}
+          onError={setError}
+          onReady={setGooglePayReady}
+        />
+      )}
+      {(applePayReady || googlePayReady) && (
+        <div className="flex items-center gap-3">
+          <span className="h-px flex-1 bg-border" />
+          <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            or pay another way
+          </span>
+          <span className="h-px flex-1 bg-border" />
+        </div>
       )}
 
       {savedMethods.length > 0 && (

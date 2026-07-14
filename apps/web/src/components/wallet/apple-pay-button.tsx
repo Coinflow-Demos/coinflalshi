@@ -27,16 +27,23 @@ export function ApplePayButton({
   amountCents,
   onSuccess,
   onError,
+  onReady,
 }: {
   amountCents: number;
   onSuccess: () => void;
   onError: (message: string) => void;
+  onReady?: (ready: boolean) => void;
 }) {
   const [supported, setSupported] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
-    setSupported(Boolean(window.ApplePaySession?.canMakePayments()));
+    const isSupported = Boolean(window.ApplePaySession?.canMakePayments());
+    setSupported(isSupported);
+    onReady?.(isSupported);
+    // onReady is a callback prop, not reactive state — omitting it from deps
+    // avoids re-running the (idempotent) support check on every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   if (!supported) return null;

@@ -167,19 +167,35 @@ async function postCoinflowChallengeableCheckout({
     cache: 'no-store',
   });
 
-  const data = await response.json().catch(() => ({}));
+  // Read the body as text first, then try to parse it. Coinflow's 5xx
+  // responses aren't always JSON (an upstream gateway error or an HTML error
+  // page comes back as text), and `.json().catch(() => ({}))` threw that away
+  // — which is exactly why a failure showed up as an opaque "Charge failed
+  // (500)" with no reason attached.
+  const rawText = await response.text();
+  let data: Record<string, unknown> = {};
+  try {
+    data = rawText ? (JSON.parse(rawText) as Record<string, unknown>) : {};
+  } catch {
+    data = {};
+  }
+  const parsed = data as {transactionId?: string; creq?: string; url?: string; paymentId?: string};
 
-  if (response.status === 412 && data.transactionId && data.url) {
-    return {status: 'challenge', transactionId: data.transactionId, creq: data.creq ?? '', url: data.url};
+  if (response.status === 412 && parsed.transactionId && parsed.url) {
+    return {status: 'challenge', transactionId: parsed.transactionId, creq: parsed.creq ?? '', url: parsed.url};
   }
 
   if (!response.ok) {
-    const message = describeCoinflowError({data, status: response.status, fallback: 'Charge failed'});
-    console.error(`[coinflow] POST ${path} -> ${response.status}`, data);
+    const message = describeCoinflowError({
+      data,
+      status: response.status,
+      fallback: rawText.trim() ? rawText.trim().slice(0, 300) : 'Charge failed',
+    });
+    console.error(`[coinflow] POST ${path} -> ${response.status}`, {parsed: data, rawBody: rawText});
     throw new Error(message);
   }
 
-  return {status: 'success', paymentId: data.paymentId};
+  return {status: 'success', paymentId: parsed.paymentId ?? ''};
 }
 
 /** Direct card charge against POST /checkout/card/{merchantId}. */
@@ -349,6 +365,79 @@ export async function chargeCoinflowSavedCard({
       webhookInfo: {pendingTransactionId},
       authentication3DS,
       token: cvvVerifiedToken,
+      chargebackProtectionData: moneyTopUpChargebackProtection(subtotalCents, {
+        accountId: userId,
+        email,
+        firstName,
+        lastName,
+      }),
+      chargebackProtectionAccountType: 'private',
+      settlementType: 'USDC',
+    },
+  });
+}
+
+/**
+ * The Google Pay `paymentData` object exactly as Google's `pay.js`
+ * `loadPaymentData()` resolves it. We forward it to Coinflow verbatim under
+ * `paymentData` — Coinflow reads `paymentMethodData.tokenizationData.token`
+ * (the gateway token Google minted for our Coinflow merchant id) out of it.
+ */
+export interface GooglePayPaymentData {
+  email?: string;
+  paymentMethodData: {
+    type: string;
+    description?: string;
+    info?: {cardNetwork?: string; cardDetails?: string};
+    tokenizationData: {type: string; token: string};
+  };
+  apiVersion?: number;
+  apiVersionMinor?: number;
+}
+
+/**
+ * Charges a Google Pay token via POST /api/checkout/google-pay/{merchantId}.
+ * Same session-key auth, fraud device id, client ip, and chargeback-protection
+ * cart as the direct card charge — the only difference is the payment
+ * instrument. Google Pay tokens are pre-authenticated, so a 3DS challenge
+ * isn't expected, but this still routes through the same challengeable helper
+ * in case Coinflow ever returns one.
+ */
+export async function chargeCoinflowGooglePay({
+  sessionKey,
+  userId,
+  email,
+  firstName,
+  lastName,
+  subtotalCents,
+  paymentData,
+  authentication3DS,
+  pendingTransactionId,
+  deviceId,
+  clientIp,
+}: {
+  sessionKey: string;
+  userId: string;
+  email?: string;
+  firstName?: string;
+  lastName?: string;
+  subtotalCents: number;
+  paymentData: GooglePayPaymentData;
+  authentication3DS: ThreeDsBrowserParams | {transactionId: string};
+  pendingTransactionId: string;
+  deviceId?: string;
+  clientIp?: string;
+}): Promise<CoinflowChallengeableResult> {
+  return postCoinflowChallengeableCheckout({
+    path: `/api/checkout/google-pay/${coinflowConfig.merchantId}`,
+    sessionKey,
+    deviceId,
+    clientIp,
+    body: {
+      subtotal: {cents: subtotalCents},
+      webhookInfo: {pendingTransactionId},
+      authentication3DS,
+      paymentData,
       chargebackProtectionData: moneyTopUpChargebackProtection(subtotalCents, {
         accountId: userId,
         email,
