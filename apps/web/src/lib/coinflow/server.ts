@@ -138,14 +138,17 @@ const moneyTopUpChargebackProtection = (subtotalCents: number, recipientInfo: Ch
  */
 async function postCoinflowChallengeableCheckout({
   path,
-  sessionKey,
+  authHeaders,
   deviceId,
   forterToken,
   clientIp,
   body,
 }: {
   path: string;
-  sessionKey: string;
+  /** Whatever auth this checkout endpoint needs — a session key for
+   * customer-initiated charges, or a merchant-API-key + user-id pair for
+   * merchant-authenticated ones like card-on-file. */
+  authHeaders: Record<string, string>;
   /** nSure device id, from the web fraud script. */
   deviceId?: string;
   /** Forter device token, from the native CoinflowCardForm's tokenize(). */
@@ -158,7 +161,7 @@ async function postCoinflowChallengeableCheckout({
     headers: {
       Accept: 'application/json',
       'Content-Type': 'application/json',
-      'x-coinflow-auth-session-key': sessionKey,
+      ...authHeaders,
       ...(deviceId ? {'x-device-id': deviceId} : {}),
       ...(forterToken ? {'x-forter-token': forterToken} : {}),
       ...(clientIp ? {'x-coinflow-client-ip': clientIp} : {}),
@@ -230,7 +233,7 @@ export async function chargeCoinflowCard({
 }): Promise<CoinflowChallengeableResult> {
   return postCoinflowChallengeableCheckout({
     path: `/api/checkout/card/${coinflowConfig.merchantId}`,
-    sessionKey,
+    authHeaders: {'x-coinflow-auth-session-key': sessionKey},
     deviceId,
     forterToken,
     clientIp,
@@ -298,7 +301,7 @@ export async function zeroAuthorizeCoinflowCard({
 }): Promise<CoinflowChallengeableResult> {
   return postCoinflowChallengeableCheckout({
     path: `/api/checkout/zero-authorization/${coinflowConfig.merchantId}`,
-    sessionKey,
+    authHeaders: {'x-coinflow-auth-session-key': sessionKey},
     deviceId,
     forterToken,
     clientIp,
@@ -355,7 +358,7 @@ export async function chargeCoinflowSavedCard({
 }): Promise<CoinflowChallengeableResult> {
   return postCoinflowChallengeableCheckout({
     path: `/api/checkout/token/${coinflowConfig.merchantId}`,
-    sessionKey,
+    authHeaders: {'x-coinflow-auth-session-key': sessionKey},
     deviceId,
     forterToken,
     clientIp,
@@ -384,6 +387,86 @@ export async function revokeCoinflowCard({sessionKey, cardToken}: {sessionKey: s
     path: `/api/customer/card/${cardToken}`,
     method: 'DELETE',
     headers: {'x-coinflow-auth-session-key': sessionKey},
+  });
+}
+
+/** Checks whether a saved card is currently eligible for a no-CVV
+ * card-on-file charge, via POST /api/checkout/card-on-file-authorized.
+ * Coinflow recommends calling this before attempting one — it can be false
+ * for reasons ranging from an expired CVV-verification window to the feature
+ * simply not being enabled on the merchant account. Merchant-authenticated
+ * (Authorization + user-id), unlike the session-key checkout endpoints. */
+export async function checkCoinflowCardOnFileAuthorized({
+  userId,
+  cardToken,
+  clientIp,
+}: {
+  userId: string;
+  cardToken: string;
+  clientIp?: string;
+}): Promise<boolean> {
+  const {authorized} = await coinflowFetch<{authorized: boolean}>({
+    path: '/api/checkout/card-on-file-authorized',
+    method: 'POST',
+    headers: {
+      Authorization: coinflowConfig.apiKey(),
+      'x-coinflow-auth-user-id': userId,
+      ...(clientIp ? {'x-coinflow-client-ip': clientIp} : {}),
+    },
+    body: {token: cardToken},
+  });
+  return authorized;
+}
+
+/** Charges a saved card via POST /api/checkout/card-on-file, referencing its
+ * token so Coinflow can find the original CVV-verified purchase on file —
+ * no CVV re-entry needed. Merchant-authenticated (Authorization + user-id),
+ * unlike every other checkout endpoint here which uses a session key. */
+export async function chargeCoinflowCardOnFile({
+  userId,
+  cardToken,
+  subtotalCents,
+  authentication3DS,
+  pendingTransactionId,
+  email,
+  firstName,
+  lastName,
+  deviceId,
+  clientIp,
+}: {
+  userId: string;
+  cardToken: string;
+  subtotalCents: number;
+  authentication3DS: ThreeDsBrowserParams | {transactionId: string};
+  pendingTransactionId: string;
+  email?: string;
+  firstName?: string;
+  lastName?: string;
+  deviceId?: string;
+  clientIp?: string;
+}): Promise<CoinflowChallengeableResult> {
+  return postCoinflowChallengeableCheckout({
+    path: '/api/checkout/card-on-file',
+    authHeaders: {
+      Authorization: coinflowConfig.apiKey(),
+      'x-coinflow-auth-user-id': userId,
+    },
+    deviceId,
+    clientIp,
+    body: {
+      subtotal: {cents: subtotalCents},
+      token: cardToken,
+      webhookInfo: {pendingTransactionId},
+      authentication3DS,
+      chargebackProtectionData: moneyTopUpChargebackProtection(subtotalCents, {
+        accountId: userId,
+        email,
+        firstName,
+        lastName,
+      }),
+      chargebackProtectionAccountType: 'private',
+      settlementType: 'USDC',
+    },
   });
 }
 
@@ -440,7 +523,7 @@ export async function chargeCoinflowGooglePay({
 }): Promise<CoinflowChallengeableResult> {
   return postCoinflowChallengeableCheckout({
     path: `/api/checkout/google-pay/${coinflowConfig.merchantId}`,
-    sessionKey,
+    authHeaders: {'x-coinflow-auth-session-key': sessionKey},
     deviceId,
     clientIp,
     body: {

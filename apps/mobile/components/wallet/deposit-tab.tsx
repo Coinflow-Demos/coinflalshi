@@ -35,7 +35,15 @@ interface SavedCardChallengeState {
   pendingTransactionId: string;
 }
 
-type ChallengeState = NewCardChallengeState | SavedCardChallengeState;
+interface CardOnFileChallengeState {
+  kind: 'card-on-file';
+  transactionId: string;
+  creq: string;
+  url: string;
+  pendingTransactionId: string;
+}
+
+type ChallengeState = NewCardChallengeState | SavedCardChallengeState | CardOnFileChallengeState;
 
 export function DepositTab({onDeposited}: {onDeposited: () => void}) {
   const {token, user} = useAuth();
@@ -49,6 +57,9 @@ export function DepositTab({onDeposited}: {onDeposited: () => void}) {
   const [savedMethods, setSavedMethods] = useState<SavedPaymentMethod[]>([]);
   const [mode, setMode] = useState<'new' | string>('new');
   const [savedCardToken, setSavedCardToken] = useState<string | null>(null);
+  // null while checking — treated as "not authorized" so the CVV form stays
+  // the default until we know a no-CVV charge is actually possible.
+  const [cardOnFileAuthorized, setCardOnFileAuthorized] = useState<boolean | null>(null);
 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -67,12 +78,20 @@ export function DepositTab({onDeposited}: {onDeposited: () => void}) {
   useEffect(() => {
     if (mode === 'new' || !token) {
       setSavedCardToken(null);
+      setCardOnFileAuthorized(null);
       return;
     }
     setSavedCardToken(null);
+    setCardOnFileAuthorized(null);
     apiFetch<{cardToken: string}>(`/api/wallet/payment-methods/${mode}`, {token})
       .then((data) => setSavedCardToken(data.cardToken))
       .catch(() => {});
+    // Coinflow recommends checking this before offering a no-CVV charge —
+    // it can be false for reasons ranging from an expired verification
+    // window to the feature not being enabled on the merchant yet.
+    apiFetch<{authorized: boolean}>(`/api/wallet/payment-methods/${mode}/card-on-file-authorized`, {token})
+      .then((data) => setCardOnFileAuthorized(Boolean(data.authorized)))
+      .catch(() => setCardOnFileAuthorized(false));
   }, [mode, token]);
 
   function updateBilling<K extends keyof Billing>(key: K, value: Billing[K]) {
@@ -163,12 +182,45 @@ export function DepositTab({onDeposited}: {onDeposited: () => void}) {
     setSuccess(true);
   }
 
+  async function handlePayCardOnFile() {
+    const data = await apiFetch<{
+      status: string;
+      transactionId?: string;
+      creq?: string;
+      url?: string;
+      pendingTransactionId: string;
+    }>('/api/wallet/deposit/charge-card-on-file', {
+      method: 'POST',
+      token,
+      body: {
+        amountCents,
+        savedPaymentMethodId: mode,
+        authentication3DS: get3DsBrowserParams(),
+      },
+    });
+
+    if (data.status === 'challenge') {
+      setChallenge({
+        kind: 'card-on-file',
+        transactionId: data.transactionId!,
+        creq: data.creq!,
+        url: data.url!,
+        pendingTransactionId: data.pendingTransactionId,
+      });
+      return;
+    }
+
+    setSuccess(true);
+  }
+
   async function handlePay() {
     setError(null);
     setSubmitting(true);
     try {
       if (mode === 'new') {
         await handlePayNewCard();
+      } else if (cardOnFileAuthorized) {
+        await handlePayCardOnFile();
       } else {
         await handlePaySavedCard();
       }
@@ -184,25 +236,19 @@ export function DepositTab({onDeposited}: {onDeposited: () => void}) {
     setSubmitting(true);
     setError(null);
     try {
-      if (challenge.kind === 'new-card') {
-        await apiFetch('/api/wallet/deposit/charge/complete', {
-          method: 'POST',
-          token,
-          body: {
-            pendingTransactionId: challenge.pendingTransactionId,
-            threeDsTransactionId,
-          },
-        });
-      } else {
-        await apiFetch('/api/wallet/deposit/charge-saved/complete', {
-          method: 'POST',
-          token,
-          body: {
-            pendingTransactionId: challenge.pendingTransactionId,
-            threeDsTransactionId,
-          },
-        });
-      }
+      const completeUrl = {
+        'new-card': '/api/wallet/deposit/charge/complete',
+        'saved-card': '/api/wallet/deposit/charge-saved/complete',
+        'card-on-file': '/api/wallet/deposit/charge-card-on-file/complete',
+      }[challenge.kind];
+      await apiFetch(completeUrl, {
+        method: 'POST',
+        token,
+        body: {
+          pendingTransactionId: challenge.pendingTransactionId,
+          threeDsTransactionId,
+        },
+      });
       setChallenge(null);
       setSuccess(true);
     } catch (e) {
@@ -294,6 +340,8 @@ export function DepositTab({onDeposited}: {onDeposited: () => void}) {
             <Text style={styles.switchLabel}>Save this card for future deposits</Text>
           </View>
         </>
+      ) : cardOnFileAuthorized ? (
+        <Text style={styles.switchLabel}>This card is on file — no need to re-enter your CVV.</Text>
       ) : (
         <View>
           <Text style={styles.label}>Re-enter your CVV to confirm</Text>
