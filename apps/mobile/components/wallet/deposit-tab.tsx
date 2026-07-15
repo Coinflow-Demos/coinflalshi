@@ -25,9 +25,6 @@ interface NewCardChallengeState {
   creq: string;
   url: string;
   pendingTransactionId: string;
-  cardToken: string;
-  expMonth: string;
-  expYear: string;
 }
 
 interface SavedCardChallengeState {
@@ -36,7 +33,6 @@ interface SavedCardChallengeState {
   creq: string;
   url: string;
   pendingTransactionId: string;
-  cvvVerifiedToken: string;
 }
 
 type ChallengeState = NewCardChallengeState | SavedCardChallengeState;
@@ -118,9 +114,6 @@ export function DepositTab({onDeposited}: {onDeposited: () => void}) {
         creq: data.creq!,
         url: data.url!,
         pendingTransactionId: data.pendingTransactionId,
-        cardToken,
-        expMonth,
-        expYear,
       });
       return;
     }
@@ -163,7 +156,6 @@ export function DepositTab({onDeposited}: {onDeposited: () => void}) {
         creq: data.creq!,
         url: data.url!,
         pendingTransactionId: data.pendingTransactionId,
-        cvvVerifiedToken,
       });
       return;
     }
@@ -199,12 +191,6 @@ export function DepositTab({onDeposited}: {onDeposited: () => void}) {
           body: {
             pendingTransactionId: challenge.pendingTransactionId,
             threeDsTransactionId,
-            amountCents,
-            cardToken: challenge.cardToken,
-            expMonth: challenge.expMonth,
-            expYear: challenge.expYear,
-            billing,
-            saveCard,
           },
         });
       } else {
@@ -214,8 +200,6 @@ export function DepositTab({onDeposited}: {onDeposited: () => void}) {
           body: {
             pendingTransactionId: challenge.pendingTransactionId,
             threeDsTransactionId,
-            amountCents,
-            cvvVerifiedToken: challenge.cvvVerifiedToken,
           },
         });
       }

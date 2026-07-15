@@ -8,7 +8,15 @@ import {deriveCardDisplay} from '@/lib/coinflow/card-display';
 const completeSchema = z.object({
   pendingTransactionId: z.string().min(1),
   threeDsTransactionId: z.string().min(1),
-  amountCents: z.number().int().min(100),
+  deviceId: z.string().optional(),
+  forterToken: z.string().optional(),
+});
+
+// What /charge stashed on the transaction when it returned a 3DS challenge —
+// read back here instead of trusting whatever the client sends at completion
+// time, so a client can't resubmit different charge details against the same
+// threeDsTransactionId.
+const pendingChargeSchema = z.object({
   cardToken: z.string().min(1),
   expMonth: z.string().min(1),
   expYear: z.string().min(1),
@@ -22,8 +30,6 @@ const completeSchema = z.object({
     zip: z.string().min(1),
     country: z.string().min(2).max(2),
   }),
-  deviceId: z.string().optional(),
-  forterToken: z.string().optional(),
   saveCard: z.boolean().optional(),
 });
 
@@ -38,23 +44,20 @@ export async function POST(request: Request) {
   if (!parsed.success) {
     return NextResponse.json({error: 'Invalid request'}, {status: 400});
   }
-  const {
-    pendingTransactionId,
-    threeDsTransactionId,
-    amountCents,
-    cardToken,
-    expMonth,
-    expYear,
-    billing,
-    deviceId,
-    forterToken,
-    saveCard,
-  } = parsed.data;
+  const {pendingTransactionId, threeDsTransactionId, deviceId, forterToken} = parsed.data;
 
   const transaction = await db.transaction.findUnique({where: {id: pendingTransactionId}});
   if (!transaction || transaction.userId !== userId || transaction.status !== 'PENDING') {
     return NextResponse.json({error: 'Deposit not found or already finalized'}, {status: 404});
   }
+
+  const pendingCharge = pendingChargeSchema.safeParse(
+    (transaction.metadata as {pendingCharge?: unknown} | null)?.pendingCharge
+  );
+  if (!pendingCharge.success) {
+    return NextResponse.json({error: 'Deposit not found or already finalized'}, {status: 404});
+  }
+  const {cardToken, expMonth, expYear, billing, saveCard} = pendingCharge.data;
 
   try {
     const clientIp = getClientIp(request);
@@ -62,7 +65,7 @@ export async function POST(request: Request) {
     const result = await chargeCoinflowCard({
       sessionKey,
       userId,
-      subtotalCents: amountCents,
+      subtotalCents: transaction.amountCents,
       cardToken,
       expMonth,
       expYear,

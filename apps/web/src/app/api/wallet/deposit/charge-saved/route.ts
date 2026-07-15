@@ -55,6 +55,13 @@ export async function POST(request: Request) {
     });
 
     if (result.status === 'challenge') {
+      // Stash what's needed to finish this charge after the 3DS challenge, so
+      // /complete reads it back from here instead of trusting whatever the
+      // client sends at completion time.
+      await db.transaction.update({
+        where: {id: transaction.id},
+        data: {metadata: {pendingCharge: {cvvVerifiedToken}}},
+      });
       return NextResponse.json({
         status: 'challenge',
         transactionId: result.transactionId,

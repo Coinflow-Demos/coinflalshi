@@ -40,9 +40,6 @@ interface NewCardChallengeState {
   creq: string;
   url: string;
   pendingTransactionId: string;
-  cardToken: string;
-  expMonth: string;
-  expYear: string;
 }
 
 interface SavedCardChallengeState {
@@ -51,7 +48,6 @@ interface SavedCardChallengeState {
   creq: string;
   url: string;
   pendingTransactionId: string;
-  cvvVerifiedToken: string;
 }
 
 type ChallengeState = NewCardChallengeState | SavedCardChallengeState;
@@ -139,9 +135,6 @@ export function DepositPanel() {
         creq: data.creq,
         url: data.url,
         pendingTransactionId: data.pendingTransactionId,
-        cardToken: token,
-        expMonth,
-        expYear,
       });
       return;
     }
@@ -183,7 +176,6 @@ export function DepositPanel() {
         creq: data.creq,
         url: data.url,
         pendingTransactionId: data.pendingTransactionId,
-        cvvVerifiedToken,
       });
       return;
     }
@@ -248,13 +240,7 @@ export function DepositPanel() {
               body: JSON.stringify({
                 pendingTransactionId: challenge.pendingTransactionId,
                 threeDsTransactionId,
-                amountCents,
-                cardToken: challenge.cardToken,
-                expMonth: challenge.expMonth,
-                expYear: challenge.expYear,
-                billing,
                 deviceId,
-                saveCard,
               }),
             })
           : await fetch('/api/wallet/deposit/charge-saved/complete', {
@@ -263,8 +249,6 @@ export function DepositPanel() {
               body: JSON.stringify({
                 pendingTransactionId: challenge.pendingTransactionId,
                 threeDsTransactionId,
-                amountCents,
-                cvvVerifiedToken: challenge.cvvVerifiedToken,
                 deviceId,
               }),
             });
