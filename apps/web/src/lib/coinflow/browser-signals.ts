@@ -3,7 +3,7 @@ export function get3DsBrowserParams() {
     colorDepth: window.screen.colorDepth,
     screenHeight: window.screen.height,
     screenWidth: window.screen.width,
-    timeZone: -new Date().getTimezoneOffset(),
+    timeZone: new Date().getTimezoneOffset(),
   };
 }
 

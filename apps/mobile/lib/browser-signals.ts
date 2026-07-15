@@ -9,6 +9,6 @@ export function get3DsBrowserParams() {
     colorDepth: 24,
     screenHeight: Math.round(height),
     screenWidth: Math.round(width),
-    timeZone: -new Date().getTimezoneOffset(),
+    timeZone: new Date().getTimezoneOffset(),
   };
 }
