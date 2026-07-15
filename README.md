@@ -1,61 +1,14 @@
-# Coinflalshi
+# Coinflalshi — Payments Integration
 
-A prediction market — trade on sports, crypto, weather, and more — built as a
-showcase of a full Coinflow payments integration (card, Apple Pay, Google Pay,
-crypto deposits, 3DS, zero-auth card-on-file, and payouts).
-
-Markets are simulated for demo purposes: each one resolves automatically a few
-minutes after it's created (randomly, weighted by its current odds), settles
-every open position, and a fresh market spawns to take its place — so there's
-always something live to trade.
+This documents the Coinflow payments integration in this codebase: card
+deposits, saved cards, card on file, Apple Pay, Google Pay, 3DS challenges,
+chargeback protection, webhooks, crypto deposits, and payouts.
 
 > **This project is sandbox-only, on purpose.** It only ever talks to
 > Coinflow's sandbox API (`api-sandbox.coinflow.cash`). There is no
 > production Coinflow environment configured anywhere, no env var that
 > switches to one, and no code path that could construct a production
 > Coinflow API URL — see `apps/web/src/lib/coinflow/config.ts`.
-
-## Layout
-
-```
-apps/web      Next.js 16 app — the main product (marketing site, trading UI,
-              auth, wallet, and all API routes). Also the backend the mobile
-              app talks to.
-apps/mobile   Expo (React Native) app — browse markets, trade, and deposit
-              with the same Coinflow-powered wallet, on iOS/Android.
-packages/db   Prisma schema + client, shared by the web app's API routes.
-```
-
-## Prerequisites
-
-- Node 20+
-- A [Neon](https://neon.tech) Postgres database (or any Postgres — Neon is
-  the easy path on Vercel)
-- A Coinflow merchant account (`predictionmarketmoon`) with a sandbox API key
-- Xcode/Android Studio (or the Expo Go app) if you want to run the mobile app
-
-## Setup
-
-```bash
-npm install
-
-# Database
-cp packages/db/.env.example packages/db/.env      # fill in your Neon URLs
-npm run db:push                                    # create tables
-npm run db:seed                                     # seed demo markets
-
-# Web app
-cp apps/web/.env.example apps/web/.env.local        # fill in Coinflow + auth secrets
-npm run dev                                         # http://localhost:3000
-
-# Mobile app (separate terminal)
-cp apps/mobile/.env.example apps/mobile/.env
-npm run dev:mobile
-```
-
-Register an account on the site (or in the app) — every new user gets an
-empty demo wallet. Deposit with a test card (or, once configured, Apple
-Pay/Google Pay/crypto) to fund it, then trade on any open market.
 
 ## Payments — what's wired up, and how
 
@@ -273,39 +226,3 @@ started.
   directly (see `packages/db/src/resolveMarket.ts`).
 - Withdrawing debits the ledger balance and triggers a real payout from the
   merchant's Coinflow wallet to the user's bank account.
-
-## The market simulation
-
-- `packages/db/src/marketTemplates.ts` — the pool of markets (a mix of real
-  teams/events and a few invented ones for fun).
-- `packages/db/src/seed.ts` — seeds the initial batch with staggered
-  countdowns so you see the resolution loop working right away.
-- `apps/web/src/app/api/cron/resolve-markets/route.ts` — resolves any market
-  whose countdown has ended (weighted-random by its current odds), settles
-  positions, and spawns a replacement market. Configured to run every minute
-  in `apps/web/vercel.json`.
-
-## Deploying to Vercel
-
-1. Import the repo, set the **root directory** to `apps/web`.
-2. Add a Postgres database (Vercel Marketplace → Neon, or connect your own)
-   and pull the resulting `DATABASE_URL` / `DATABASE_URL_UNPOOLED`.
-3. Add the rest of the env vars from `apps/web/.env.example`.
-4. Set `CRON_SECRET` — Vercel automatically sends it as `Authorization:
-   Bearer <value>` to the cron route once the var exists.
-5. Deploy. Run `npm run db:push && npm run db:seed` once (locally, pointed at
-   the production `DATABASE_URL`, or via a one-off Vercel deploy hook).
-
-The mobile app deploys separately via EAS Build/Submit once you're ready for
-TestFlight/Play Console — it just needs `EXPO_PUBLIC_API_BASE_URL` pointed at
-your deployed web app.
-
-## Known gaps / next steps
-
-- Apple Pay and Google Pay need your Apple Developer merchant id/certs and
-  Google Pay merchant id configured on the Coinflow dashboard before flipping
-  their feature flags on in production (see "Payments" above).
-- No automated test suite yet.
-
-See "Known simplifications" under Payments above for the specific,
-deliberate scope cuts in the payments integration itself.
