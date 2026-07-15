@@ -30,6 +30,14 @@ succeeding — that means a 3DS challenge is required. We render it
 (`ThreeDsChallengeModal`) and complete the charge afterward with
 `authentication3DS: {transactionId}`.
 
+Challenges are rendered with Basis Theory's `@basis-theory/web-threeds` SDK
+— all merchants are configured on Basis Theory as their 3DS provider now, so
+this is the branch that actually runs (`creq` empty, params in `url`'s query
+string). Configuration is just one env var: `NEXT_PUBLIC_COINFLOW_BT_PUBLIC_KEY`
+(ask Coinflow for the sandbox key). The code also still handles the older
+TokenEx shape (`creq` populated, POST to an ACS `url`) — left in as-is since
+it's harmless to keep and costs nothing to leave working.
+
 ## Apple Pay
 
 | What | Endpoint | Function |
@@ -59,6 +67,12 @@ Every charge (card, saved card, card on file, Apple Pay, Google Pay) sends
 `settlementType: 'USDC'`. This is what covers the transaction against a
 later chargeback. One gotcha: the amounts inside that cart item are in
 **dollars**, not cents — the one place in the whole request that isn't cents.
+
+Chargeback protection also relies on a device id from Coinflow's fraud
+partner, nSure — its SDK is initialized once in the root layout
+(`apps/web/src/app/layout.tsx`), and `getFraudProtectionDeviceId()` reads the
+resulting device id and sends it as `x-device-id` on every card-family
+charge.
 
 ## Webhooks
 
