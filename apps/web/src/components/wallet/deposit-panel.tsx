@@ -442,11 +442,7 @@ export function DepositPanel() {
             Save this card for future deposits
           </label>
         </>
-      ) : cardOnFileAuthorized ? (
-        <p className="text-sm text-muted-foreground">
-          This card is on file — no need to re-enter your CVV.
-        </p>
-      ) : (
+      ) : cardOnFileAuthorized ? null : (
         <div>
           <label className="mb-1.5 block text-sm font-medium text-muted-foreground">
             Re-enter your CVV to confirm

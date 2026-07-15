@@ -340,9 +340,7 @@ export function DepositTab({onDeposited}: {onDeposited: () => void}) {
             <Text style={styles.switchLabel}>Save this card for future deposits</Text>
           </View>
         </>
-      ) : cardOnFileAuthorized ? (
-        <Text style={styles.switchLabel}>This card is on file — no need to re-enter your CVV.</Text>
-      ) : (
+      ) : cardOnFileAuthorized ? null : (
         <View>
           <Text style={styles.label}>Re-enter your CVV to confirm</Text>
           <View style={styles.cardFormBox}>
