@@ -2,6 +2,7 @@
 
 import {useCallback, useEffect, useRef, useState} from 'react';
 import {BasisTheory3ds} from '@basis-theory/web-threeds';
+import {buildThreeDsChallengeHtml} from '@/lib/coinflow/challenge-html';
 
 const BT_CHALLENGE_CONTAINER_ID = 'bt-3ds-challenge-container';
 
@@ -64,12 +65,15 @@ export function ThreeDsChallengeModal({
     runBasisTheoryChallenge();
   }, [creq, runBasisTheoryChallenge]);
 
-  if (!creq) {
+  const challengeHtml = creq ? buildThreeDsChallengeHtml({url, creq}) : null;
+
+  if (!creq || !challengeHtml) {
+    const message = creq && !challengeHtml ? 'Malformed 3DS challenge response' : error;
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
         <div className="flex h-[600px] w-full max-w-md flex-col overflow-hidden rounded-xl bg-white">
-          {error ? (
-            <p className="m-auto max-w-xs text-center text-sm text-red-600">{error}</p>
+          {message ? (
+            <p className="m-auto max-w-xs text-center text-sm text-red-600">{message}</p>
           ) : (
             <div id={BT_CHALLENGE_CONTAINER_ID} className="h-full w-full" />
           )}
@@ -81,15 +85,7 @@ export function ThreeDsChallengeModal({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
       <div className="h-[600px] w-full max-w-md overflow-hidden rounded-xl bg-white">
-        <iframe
-          title="3DS verification"
-          style={{width: '100%', height: '100%', border: 'none'}}
-          srcDoc={`<html><body onload="document.challenge.submit()">
-            <form method="post" name="challenge" action="${url}">
-              <input type="hidden" name="creq" value="${creq}" />
-            </form>
-          </body></html>`}
-        />
+        <iframe title="3DS verification" style={{width: '100%', height: '100%', border: 'none'}} srcDoc={challengeHtml} />
       </div>
     </div>
   );
