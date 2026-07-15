@@ -303,7 +303,6 @@ export async function zeroAuthorizeCoinflowCard({
     forterToken,
     clientIp,
     body: {
-      reason: 'unscheduled',
       authentication3DS,
       card: {
         cardToken,
