@@ -23,6 +23,7 @@ const withdrawSchema = z.object({
   amountCents: z.number().int().min(100),
   token: z.string().min(1),
   speed: z.enum(WITHDRAW_SPEEDS),
+  idempotencyKey: z.string().min(1),
 });
 
 export async function POST(request: Request) {
@@ -43,7 +44,7 @@ export async function POST(request: Request) {
   if (!parsed.success) {
     return NextResponse.json({error: 'Invalid withdrawal request'}, {status: 400});
   }
-  const {amountCents, token, speed} = parsed.data;
+  const {amountCents, token, speed, idempotencyKey} = parsed.data;
 
   const wallet = await db.wallet.findUnique({where: {userId}});
   if (!wallet || wallet.balanceCents < amountCents) {
@@ -57,7 +58,7 @@ export async function POST(request: Request) {
       speed: speed as CoinflowWithdrawSpeed,
       account: token,
       amountCents,
-      idempotencyKey: crypto.randomUUID(),
+      idempotencyKey,
       clientIp: getClientIp(request),
     });
   } catch (error) {

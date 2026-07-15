@@ -1,4 +1,4 @@
-import {useCallback, useEffect, useState} from 'react';
+import {useCallback, useEffect, useRef, useState} from 'react';
 import {Linking, Modal, Pressable, StyleSheet, Text, TextInput, View} from 'react-native';
 import {SafeAreaView} from 'react-native-safe-area-context';
 import WebView from 'react-native-webview';
@@ -28,6 +28,9 @@ export function WithdrawTab({balanceCents}: {balanceCents: number}) {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
+  // Reused across retries of the same amount/account so a network-level retry
+  // hits Coinflow's own idempotency dedup instead of risking a second payout.
+  const lastAttemptRef = useRef<{amountCents: number; token: string; idempotencyKey: string} | null>(null);
 
   const loadAccounts = useCallback(
     async (silent = false) => {
@@ -75,6 +78,14 @@ export function WithdrawTab({balanceCents}: {balanceCents: number}) {
     const method = accounts.methods.find((m) => m.token === selectedToken);
     if (!method) return;
 
+    const amountCents = Math.round(Number(amount) * 100);
+    const last = lastAttemptRef.current;
+    const idempotencyKey =
+      last && last.amountCents === amountCents && last.token === method.token
+        ? last.idempotencyKey
+        : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+    lastAttemptRef.current = {amountCents, token: method.token, idempotencyKey};
+
     setSubmitting(true);
     setError(null);
     try {
@@ -82,9 +93,10 @@ export function WithdrawTab({balanceCents}: {balanceCents: number}) {
         method: 'POST',
         token,
         body: {
-          amountCents: Math.round(Number(amount) * 100),
+          amountCents,
           token: method.token,
           speed: method.speed,
+          idempotencyKey,
         },
       });
       setSuccess(true);
