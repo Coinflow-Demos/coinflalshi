@@ -18,11 +18,11 @@ interface CoinflowWebhookPacket {
   };
 }
 
-const SUCCESS_EVENT_TYPES = new Set(['Settled', 'Completed']);
+const SUCCESS_EVENT_TYPES = new Set(['Settled']);
 const FAILURE_EVENT_TYPES = new Set([
   'Card Payment Declined',
-  'Failed',
-  'Auth Declined',
+  'Card Payment Voided',
+  'Payment Expiration',
 ]);
 
 // Crypto pay-ins carry a different payload shape than card payments —
