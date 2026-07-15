@@ -30,13 +30,13 @@ succeeding — that means a 3DS challenge is required. We render it
 (`ThreeDsChallengeModal`) and complete the charge afterward with
 `authentication3DS: {transactionId}`.
 
-Challenges are rendered with Basis Theory's `@basis-theory/web-threeds` SDK
-— all merchants are configured on Basis Theory as their 3DS provider now, so
-this is the branch that actually runs (`creq` empty, params in `url`'s query
-string). Configuration is just one env var: `NEXT_PUBLIC_COINFLOW_BT_PUBLIC_KEY`
-(ask Coinflow for the sandbox key). The code also still handles the older
-TokenEx shape (`creq` populated, POST to an ACS `url`) — left in as-is since
-it's harmless to keep and costs nothing to leave working.
+In practice, this merchant's challenges come back with `creq` populated —
+no config needed, just an auto-submitting iframe form that POSTs `creq` to
+the ACS `url`. The code also handles the case where `creq` is empty instead
+(params in `url`'s query string, rendered via Basis Theory's
+`@basis-theory/web-threeds` SDK) — that branch needs
+`NEXT_PUBLIC_COINFLOW_BT_PUBLIC_KEY` set to a real key from Coinflow, which
+we don't have yet, so it's untested here.
 
 ## Apple Pay
 
