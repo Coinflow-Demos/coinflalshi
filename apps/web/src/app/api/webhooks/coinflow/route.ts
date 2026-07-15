@@ -24,6 +24,12 @@ const FAILURE_EVENT_TYPES = new Set([
   'Card Payment Voided',
   'Payment Expiration',
 ]);
+// A chargeback only ever arrives after a Settled transaction already credited
+// the wallet, so it needs to reverse that credit rather than just mark a
+// status. Only the "opened" event is handled — re-crediting on a won dispute
+// would need to distinguish "reversed by chargeback" from "never completed",
+// which the current schema has no field for; out of scope for now.
+const CHARGEBACK_OPENED_EVENT_TYPES = new Set(['Card Payment Chargeback Opened']);
 
 // Crypto pay-ins carry a different payload shape than card payments —
 // `paymentId` instead of `id`, and `customerId` is our internal userId.
@@ -66,31 +72,65 @@ export async function POST(request: Request) {
       ? await db.transaction.findUnique({where: {coinflowPaymentId}})
       : null;
 
-  if (!transaction || transaction.status === 'COMPLETED') {
+  if (!transaction) {
     return NextResponse.json({received: true});
   }
 
   if (SUCCESS_EVENT_TYPES.has(packet.eventType)) {
-    const creditedCents = packet.data.subtotal?.cents ?? transaction.amountCents;
-
-    await db.$transaction(async (tx) => {
-      await tx.transaction.update({
-        where: {id: transaction.id},
-        data: {status: 'COMPLETED', coinflowPaymentId},
-      });
-      await tx.wallet.update({
-        where: {userId: transaction.userId},
-        data: {balanceCents: {increment: creditedCents}},
-      });
+    await creditIfPending(transaction, {
+      coinflowPaymentId,
+      creditedCents: packet.data.subtotal?.cents,
     });
   } else if (FAILURE_EVENT_TYPES.has(packet.eventType)) {
-    await db.transaction.update({
-      where: {id: transaction.id},
+    await db.transaction.updateMany({
+      where: {id: transaction.id, status: 'PENDING'},
       data: {status: 'FAILED', coinflowPaymentId},
     });
+  } else if (CHARGEBACK_OPENED_EVENT_TYPES.has(packet.eventType)) {
+    await reverseIfCompleted(transaction, packet.data.subtotal?.cents);
   }
 
   return NextResponse.json({received: true});
+}
+
+// Coinflow retries webhook deliveries, so the same "Settled" event can arrive
+// more than once for one transaction. The status check has to happen inside
+// the same atomic statement as the credit — checking it beforehand leaves a
+// window where two concurrent deliveries both see PENDING and both credit
+// the wallet. `updateMany` with `status: 'PENDING'` in the WHERE clause only
+// ever matches for whichever delivery gets there first.
+async function creditIfPending(
+  transaction: {id: string; userId: string; amountCents: number},
+  {coinflowPaymentId, creditedCents}: {coinflowPaymentId?: string; creditedCents?: number}
+) {
+  await db.$transaction(async (tx) => {
+    const {count} = await tx.transaction.updateMany({
+      where: {id: transaction.id, status: 'PENDING'},
+      data: {status: 'COMPLETED', coinflowPaymentId},
+    });
+    if (count === 0) return;
+    await tx.wallet.update({
+      where: {userId: transaction.userId},
+      data: {balanceCents: {increment: creditedCents ?? transaction.amountCents}},
+    });
+  });
+}
+
+// Same atomicity concern as creditIfPending — only reverse a credit that's
+// actually still COMPLETED, so a duplicate chargeback event can't decrement
+// the wallet twice.
+async function reverseIfCompleted(transaction: {id: string; userId: string; amountCents: number}, reversedCents?: number) {
+  await db.$transaction(async (tx) => {
+    const {count} = await tx.transaction.updateMany({
+      where: {id: transaction.id, status: 'COMPLETED'},
+      data: {status: 'FAILED', metadata: {chargedBack: true}},
+    });
+    if (count === 0) return;
+    await tx.wallet.update({
+      where: {userId: transaction.userId},
+      data: {balanceCents: {decrement: reversedCents ?? transaction.amountCents}},
+    });
+  });
 }
 
 async function handleCryptoPayinFundsReceived(packet: CoinflowWebhookPacket) {
