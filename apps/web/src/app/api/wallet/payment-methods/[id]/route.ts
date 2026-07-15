@@ -1,6 +1,7 @@
 import {NextResponse} from 'next/server';
 import {db} from '@coinflalshi/db';
 import {getCurrentUserId} from '@/lib/current-user';
+import {getCoinflowSessionKey, revokeCoinflowCard, getClientIp} from '@/lib/coinflow/server';
 
 // Returns the raw Coinflow card token so the client can mount a CVV-only
 // re-verification form (CoinflowCvvForm) before charging this saved card.
@@ -35,6 +36,15 @@ export async function DELETE(request: Request, {params}: {params: Promise<{id: s
   const savedPaymentMethod = await db.savedPaymentMethod.findUnique({where: {id}});
   if (!savedPaymentMethod || savedPaymentMethod.userId !== userId) {
     return NextResponse.json({error: 'Payment method not found'}, {status: 404});
+  }
+
+  try {
+    const clientIp = getClientIp(request);
+    const sessionKey = await getCoinflowSessionKey({userId, clientIp});
+    await revokeCoinflowCard({sessionKey, cardToken: savedPaymentMethod.cardToken});
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Could not remove card at Coinflow';
+    return NextResponse.json({error: message}, {status: 502});
   }
 
   await db.savedPaymentMethod.delete({where: {id}});

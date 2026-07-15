@@ -32,7 +32,7 @@ async function coinflowFetch<T>({
   body,
 }: {
   path: string;
-  method?: 'GET' | 'POST';
+  method?: 'GET' | 'POST' | 'DELETE';
   headers?: Record<string, string>;
   body?: unknown;
 }): Promise<T> {
@@ -373,6 +373,17 @@ export async function chargeCoinflowSavedCard({
       chargebackProtectionAccountType: 'private',
       settlementType: 'USDC',
     },
+  });
+}
+
+/** Revokes a saved card at Coinflow via DELETE /api/customer/card/{cardToken},
+ * so removing a saved payment method here actually removes it from Coinflow's
+ * vault instead of just deleting our local reference to it. */
+export async function revokeCoinflowCard({sessionKey, cardToken}: {sessionKey: string; cardToken: string}) {
+  await coinflowFetch<unknown>({
+    path: `/api/customer/card/${cardToken}`,
+    method: 'DELETE',
+    headers: {'x-coinflow-auth-session-key': sessionKey},
   });
 }
 
