@@ -32,11 +32,7 @@ succeeding — that means a 3DS challenge is required. We render it
 
 In practice, this merchant's challenges come back with `creq` populated —
 no config needed, just an auto-submitting iframe form that POSTs `creq` to
-the ACS `url`. The code also handles the case where `creq` is empty instead
-(params in `url`'s query string, rendered via Basis Theory's
-`@basis-theory/web-threeds` SDK) — that branch needs
-`NEXT_PUBLIC_COINFLOW_BT_PUBLIC_KEY` set to a real key from Coinflow, which
-we don't have yet, so it's untested here.
+the ACS `url`.
 
 ## Apple Pay
 
