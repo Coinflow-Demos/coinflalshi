@@ -137,19 +137,34 @@ behavior.
 
 ### Webhooks
 
+Every deposit method above (card, saved card, card on file, Apple Pay,
+Google Pay) only creates a `PENDING` transaction row and calls Coinflow —
+**the wallet balance is only ever credited by this webhook**, not by the
+charge API responding "success." A charge can come back successful and the
+wallet still won't show the funds until the webhook fires (usually
+near-instant, but not synchronous).
+
 - `POST /api/webhooks/coinflow` verifies `HMAC-SHA256("${timestamp}.${body}")`
   against the `Coinflow-Signature: t=<ts>,v1=<hex>` header, compared with a
-  constant-time check.
+  constant-time check. A missing or invalid signature is rejected with a
+  `401` before anything else runs.
+- The pending transaction is looked up by `data.webhookInfo.pendingTransactionId`
+  first (the id we passed in on the original charge), falling back to
+  `data.id` matched against our stored `coinflowPaymentId` if that's absent.
 - Real event names handled: `Settled` (credit the wallet),
   `Card Payment Declined` / `Card Payment Voided` / `Payment Expiration`
   (mark the deposit failed), `Card Payment Chargeback Opened` (reverse a
   previously-credited deposit), and `Crypto Payin Funds Received` (a
   differently-shaped payload — `paymentId`/`customerId`/`amount` instead of
-  `id`/`webhookInfo`).
+  `id`/`webhookInfo`, since crypto pay-ins aren't tied to a pending
+  transaction we created up front).
 - Coinflow retries webhook deliveries, so every credit/reversal is gated by
   an atomic, status-conditioned update (`updateMany` with the expected
   current status in the `WHERE` clause) — a duplicate delivery matches zero
   rows and no-ops instead of double-crediting or double-reversing a wallet.
+  The crypto path uses a different but equivalent guard: `coinflowPaymentId`
+  is a `@unique` column, so a duplicate `Crypto Payin Funds Received` event
+  is caught by a lookup before the credit, not by a conditional update.
 - Configure the endpoint URL (`https://<your-domain>/api/webhooks/coinflow`)
   under Developers → Webhooks in the Coinflow dashboard, and copy the Webhook
   Validation Key into `COINFLOW_WEBHOOK_VALIDATION_KEY`.
