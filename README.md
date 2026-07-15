@@ -64,17 +64,187 @@ This integrates Coinflow via its direct REST API rather than the hosted
 tokenization primitives (`CoinflowCardForm` / `CoinflowCvvForm`, web;
 `@coinflowlabs/react-native` equivalents on mobile) collect card data, and the
 business logic (charging, 3DS, chargeback-protection data, webhooks) is
-hand-wired server-side. See `apps/web/src/lib/coinflow/server.ts`.
+hand-wired server-side in `apps/web/src/lib/coinflow/server.ts`. Every
+endpoint and field name below has been checked directly against Coinflow's
+backend source, not just its public docs — the two disagree in one place
+(noted below), and where they do, this app follows the actual server
+behavior.
 
-| Feature | Status | Notes |
-| --- | --- | --- |
-| Card deposits | ✅ wired | `CoinflowCardForm` tokenizes the card; the resulting token is charged via `POST /checkout/card/{merchantId}`. 3DS challenges are handled with our own `ThreeDsChallengeModal` (Basis Theory bridge) since there's no hosted SDK to do it for us. |
-| Apple Pay | 🚩 feature-flagged | Self-hosted `ApplePayButton` drives the native `ApplePaySession` API directly (Safari/WebKit only) and charges via `POST /checkout/v2/apple-pay/{merchantId}`. Requires an Apple Developer merchant id + domain association file + Coinflow-side cert upload. Set `NEXT_PUBLIC_COINFLOW_APPLE_PAY_ENABLED=true` once configured. |
-| Google Pay | 🚩 feature-flagged | Self-hosted `GooglePayButton` (loads Google's `pay.js` directly) tokenizes with `gateway: "coinflow"` and charges via `POST /checkout/google-pay/{merchantId}`. Works out of the box in sandbox (`NEXT_PUBLIC_GOOGLE_PAY_ENVIRONMENT=TEST`); set `NEXT_PUBLIC_COINFLOW_GOOGLE_PAY_ENABLED=true` to show the button. Production needs Google Pay & Wallet Console approval. |
-| Card-on-file / zero-auth | ✅ wired | The deposit panel has a "save this card without charging it" toggle, which calls `POST /checkout/zero-authorization/{merchantId}` instead of a real charge. |
-| Crypto deposits | ✅ wired | `/api/wallet/crypto/address` calls Coinflow's passive deposit-address API server-side and persists the address per user/chain. Verify the exact request/response shape against `/api-reference` once your sandbox key is live — the fallback chain list in that route covers you if the live lookup errors. |
-| Webhooks | ✅ wired | `/api/webhooks/coinflow` verifies the `Coinflow-Signature` HMAC and credits the user's ledger wallet on a `Settled` purchase event. Configure this URL (`https://<your-domain>/api/webhooks/coinflow`) under Developers → Webhooks in the Coinflow dashboard, and copy the Webhook Validation Key into `COINFLOW_WEBHOOK_VALIDATION_KEY`. |
-| Payouts | 🚩 feature-flagged | `/api/wallet/withdraw/request` drives Coinflow's KYC → bank-account → payout REST endpoints server-side. This requires KYC and a payout method to be enabled on the merchant account first — set `COINFLOW_PAYOUTS_ENABLED=true` once that's done, and double check the request fields against `/api-reference/withdraw` in the sandbox (this path is less exhaustively verified than the deposit flow above). |
+### Card deposits
+
+- `CoinflowCardForm` tokenizes the card client-side; the token is charged via
+  `POST /api/checkout/card/{merchantId}`, authenticated with a session key
+  alone (`x-coinflow-auth-session-key` — no merchant API key needed).
+- Saved cards re-verify the CVV (`CoinflowCvvForm`) and charge via
+  `POST /api/checkout/token/{merchantId}` instead — this endpoint needs a
+  *customer-scoped* session key (minted with `x-coinflow-auth-user-id`), a
+  stricter requirement than the plain card charge above.
+- "Save this card without charging it" uses
+  `POST /api/checkout/zero-authorization/{merchantId}`. This endpoint has a
+  narrower body than a real charge — no `subtotal`, `chargebackProtectionData`,
+  or `settlementType` fields exist on it, and it does **not** accept a
+  `reason` field either (that field exists on Coinflow's internal type but is
+  stripped from the public endpoint's schema).
+- Removing a saved card also calls `DELETE /api/customer/card/{cardToken}`
+  (session-key auth) to revoke it at Coinflow — not just deleting our local
+  reference, which would otherwise leave the card live and chargeable in
+  Coinflow's vault indefinitely.
+
+### 3DS challenges
+
+- A `412` response means a challenge is required, with body
+  `{transactionId, url, creq}`. Which fields matter depends on which
+  tokenization provider issued the card:
+  - **TokenEx**: both `url` (the card issuer's ACS URL) and `creq` (an
+    encoded challenge request) are populated — POST `creq` to `url` in an
+    auto-submitting iframe form.
+  - **Basis Theory**: `creq` is always an empty string; `url` instead points
+    at an internal bridge page with challenge params (`acsChallengeUrl`,
+    `acsTransactionId`, `sessionId`, `threeDSVersion`) in its query string,
+    handed to the `@basis-theory/web-threeds` SDK to render in-page.
+- `ThreeDsChallengeModal` picks the right path based on whether `creq` is
+  empty. The native app has no DOM for that SDK, so it loads
+  `/embed/3ds-challenge` in a WebView and gets the result back via
+  `postMessage` instead.
+- Completing a challenge sends `authentication3DS: {transactionId}` — that
+  object accepts **only** the `transactionId` key, nothing else.
+- The original charge details (card token/expiry/billing, or the saved
+  card's `cvvVerifiedToken`) are stashed server-side on the pending
+  transaction when the challenge is issued, and read back at `/complete` —
+  never re-trusted from what the client resubmits after the challenge.
+- The browser-signal fields (`colorDepth`, `screenHeight`, `screenWidth`,
+  `timeZone`) sent as `authentication3DS` on the initial charge match
+  Coinflow's own production checkout widget's code exactly — `timeZone` is
+  `getTimezoneOffset()` with no sign change. Coinflow's own public Fern docs
+  recipes show it negated instead; this app follows the actual widget code,
+  not the docs example, since that's what's verified against the real
+  backend.
+
+### Apple Pay
+
+- Self-hosted `ApplePayButton` drives the native `ApplePaySession` API
+  directly (Safari/WebKit only) — not Coinflow's hosted checkout.
+- Merchant validation: `GET /api/checkout/apple-pay/validatemerchant`
+  (unauthenticated) with `domainName` + `merchantId`.
+- Charge: `POST /api/checkout/v2/apple-pay/{merchantId}`. No
+  `authentication3DS` field — Apple Pay handles device authentication itself
+  and never returns a 3DS challenge.
+- Needs a domain-association file under `/.well-known/` plus either (a) an
+  Apple Developer Merchant ID with its own signed certificate uploaded to
+  Coinflow, or (b) approval to use Coinflow's shared "PSP" merchant path via a
+  whitelisted-URL request. Set `NEXT_PUBLIC_COINFLOW_APPLE_PAY_ENABLED=true`
+  once either is configured.
+- Coinflow reads the buyer's email from `shippingContact` first, falling back
+  to `billingContact` — but Apple's web payment sheet only reliably populates
+  email via `requiredShippingContactFields`, so the button requests it there
+  even though this isn't a real shipment.
+
+### Google Pay
+
+- Self-hosted `GooglePayButton`, loads Google's `pay.js` directly — also not
+  the hosted checkout widget.
+- Tokenizes with `gateway: "coinflow"` and the Coinflow merchant id as
+  `gatewayMerchantId`.
+- Charge: `POST /api/checkout/google-pay/{merchantId}` — same
+  session-key/chargeback-protection/3DS shape as a card charge, since
+  Coinflow treats it as another card-family charge. Unlike Apple Pay, it
+  *can* return a 412 challenge; this app doesn't attempt to resolve one — it
+  fails cleanly and asks the user to pay with the card form instead.
+- `billingAddressRequired: true` + `format: 'FULL'` on the Google Pay request
+  are load-bearing, not decorative — Coinflow reads the cardholder name and
+  address straight out of `paymentMethodData.info.billingAddress` for its
+  fraud check.
+- Works out of the box in sandbox (`NEXT_PUBLIC_GOOGLE_PAY_ENVIRONMENT=TEST`);
+  set `NEXT_PUBLIC_COINFLOW_GOOGLE_PAY_ENABLED=true` to show the button.
+  Production needs Google Pay & Wallet Console approval.
+
+### Chargeback protection
+
+- Every charge (card, saved card, Apple Pay, Google Pay) sends
+  `chargebackProtectionData` — an array with one `moneyTopUp`-class cart item
+  describing the deposit as a balance top-up — plus
+  `chargebackProtectionAccountType: 'private'`.
+- `sellingPrice`/`topUpAmount` inside that cart item are in **dollars**
+  (`valueInCurrency`), not cents — the one place in the whole request that
+  isn't cents. Deposits divide the cents amount by 100 specifically for this
+  field.
+- `recipientInfo.accountId` is set to the user's own internal id, so repeat
+  purchases can be linked to the same buyer for risk scoring.
+
+### Webhooks
+
+- `POST /api/webhooks/coinflow` verifies `HMAC-SHA256("${timestamp}.${body}")`
+  against the `Coinflow-Signature: t=<ts>,v1=<hex>` header, compared with a
+  constant-time check.
+- Real event names handled: `Settled` (credit the wallet),
+  `Card Payment Declined` / `Card Payment Voided` / `Payment Expiration`
+  (mark the deposit failed), `Card Payment Chargeback Opened` (reverse a
+  previously-credited deposit), and `Crypto Payin Funds Received` (a
+  differently-shaped payload — `paymentId`/`customerId`/`amount` instead of
+  `id`/`webhookInfo`).
+- Coinflow retries webhook deliveries, so every credit/reversal is gated by
+  an atomic, status-conditioned update (`updateMany` with the expected
+  current status in the `WHERE` clause) — a duplicate delivery matches zero
+  rows and no-ops instead of double-crediting or double-reversing a wallet.
+- Configure the endpoint URL (`https://<your-domain>/api/webhooks/coinflow`)
+  under Developers → Webhooks in the Coinflow dashboard, and copy the Webhook
+  Validation Key into `COINFLOW_WEBHOOK_VALIDATION_KEY`.
+
+### Crypto deposits
+
+- `GET /api/merchant/customer-payin-addresses/supported-chains`
+  (merchant-API-key auth) lists supported chains.
+- `POST /api/checkout/crypto-deposit-address/{merchantId}` (session-key auth)
+  creates a deposit address, persisted per user/chain so repeat visits reuse
+  the same one.
+- Credited via the `Crypto Payin Funds Received` webhook above, not the
+  card-deposit `Settled` path.
+
+### Withdrawals (payouts)
+
+- Linking a payout method uses Coinflow's hosted Bank Authentication UI in an
+  iframe (`app-sandbox.coinflow.cash/solana/link/{merchantId}`) — we never
+  see routing/account numbers. Coinflow's own docs show
+  `/solana/withdraw/{merchantId}` as the canonical example instead; both are
+  real, working entry points against the live sandbox, just documented
+  differently.
+- `GET /api/withdraw` ("Get Withdrawer") lists linked payout methods. A `401`
+  means no withdrawer record exists yet (auto-registered via
+  `POST /api/withdraw/kyc`); a `451` means Persona identity verification is
+  required before continuing.
+- The actual payout — `POST /api/merchant/withdraws/payout/delegated` —
+  accepts **only** merchant-API-key auth; there's no session-key alternative,
+  so a user can never trigger it directly. Coinflow independently validates
+  that the payout account token actually belongs to the requesting user.
+- The idempotency key is generated once per withdrawal attempt on the client
+  and reused on retry (same amount + account), so a network-level retry
+  can't risk a duplicate payout.
+- Requires KYC and a payout method enabled on the merchant account — set
+  `COINFLOW_PAYOUTS_ENABLED=true` once that's done.
+
+### Known simplifications
+
+Deliberate scope cuts, not bugs — worth knowing if you're extending this:
+
+- Web card charges don't forward the Forter device token (`forterToken`)
+  that the mobile app does — a real fraud-signal gap on web, not a
+  correctness issue.
+- A `410` "revalidate CVV" response shows a generic error message instead of
+  Coinflow's specific `RevalidateCVVFields` guidance.
+- Card form validation (name length, expiry digit count) is looser than
+  Coinflow's actual field constraints — not exploitable, since
+  `CoinflowCardForm` already returns valid values, just unenforced
+  defense-in-depth.
+- A chargeback reversal only handles `Card Payment Chargeback Opened`; a won
+  dispute isn't re-credited, since the schema has no field to distinguish
+  "reversed by chargeback" from "was never completed."
+- The zero-auth "save card without charging" completion route
+  (`payment-methods/save/complete`) still trusts client-resubmitted card
+  details rather than reading from a stored record, unlike the paid-charge
+  completion routes — it has no persisted pending-transaction to extend, and
+  moves no money either way, so the risk is much lower.
+- The merchant id (`predictionmarketmoon`) is a hardcoded literal in four
+  client-side files instead of one shared constant.
 
 Settlement is left on Coinflow's default — funds land in your managed
 Coinflow Wallet — so no extra settlement configuration is required to get
@@ -123,8 +293,8 @@ your deployed web app.
 
 - Apple Pay and Google Pay need your Apple Developer merchant id/certs and
   Google Pay merchant id configured on the Coinflow dashboard before flipping
-  their feature flags on.
-- Payouts need KYC + a payout method enabled on the merchant account; the
-  request-field shapes in `lib/coinflow/server.ts` should be double-checked
-  against the live sandbox once that's on.
+  their feature flags on in production (see "Payments" above).
 - No automated test suite yet.
+
+See "Known simplifications" under Payments above for the specific,
+deliberate scope cuts in the payments integration itself.
