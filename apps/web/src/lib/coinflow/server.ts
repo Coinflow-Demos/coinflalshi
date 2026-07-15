@@ -140,7 +140,6 @@ async function postCoinflowChallengeableCheckout({
   path,
   authHeaders,
   deviceId,
-  forterToken,
   clientIp,
   body,
 }: {
@@ -151,8 +150,6 @@ async function postCoinflowChallengeableCheckout({
   authHeaders: Record<string, string>;
   /** nSure device id, from the web fraud script. */
   deviceId?: string;
-  /** Forter device token, from the native CoinflowCardForm's tokenize(). */
-  forterToken?: string;
   clientIp?: string;
   body: unknown;
 }): Promise<CoinflowChallengeableResult> {
@@ -163,7 +160,6 @@ async function postCoinflowChallengeableCheckout({
       'Content-Type': 'application/json',
       ...authHeaders,
       ...(deviceId ? {'x-device-id': deviceId} : {}),
-      ...(forterToken ? {'x-forter-token': forterToken} : {}),
       ...(clientIp ? {'x-coinflow-client-ip': clientIp} : {}),
     },
     body: JSON.stringify(body),
@@ -214,7 +210,6 @@ export async function chargeCoinflowCard({
   pendingTransactionId,
   saveCard,
   deviceId,
-  forterToken,
   clientIp,
 }: {
   sessionKey: string;
@@ -228,14 +223,12 @@ export async function chargeCoinflowCard({
   pendingTransactionId: string;
   saveCard?: boolean;
   deviceId?: string;
-  forterToken?: string;
   clientIp?: string;
 }): Promise<CoinflowChallengeableResult> {
   return postCoinflowChallengeableCheckout({
     path: `/api/checkout/card/${coinflowConfig.merchantId}`,
     authHeaders: {'x-coinflow-auth-session-key': sessionKey},
     deviceId,
-    forterToken,
     clientIp,
     body: {
       subtotal: {cents: subtotalCents},
@@ -286,7 +279,6 @@ export async function zeroAuthorizeCoinflowCard({
   billing,
   authentication3DS,
   deviceId,
-  forterToken,
   clientIp,
 }: {
   sessionKey: string;
@@ -296,14 +288,12 @@ export async function zeroAuthorizeCoinflowCard({
   billing: CardBillingInfo;
   authentication3DS: ThreeDsBrowserParams | {transactionId: string};
   deviceId?: string;
-  forterToken?: string;
   clientIp?: string;
 }): Promise<CoinflowChallengeableResult> {
   return postCoinflowChallengeableCheckout({
     path: `/api/checkout/zero-authorization/${coinflowConfig.merchantId}`,
     authHeaders: {'x-coinflow-auth-session-key': sessionKey},
     deviceId,
-    forterToken,
     clientIp,
     body: {
       authentication3DS,
@@ -340,7 +330,6 @@ export async function chargeCoinflowSavedCard({
   authentication3DS,
   pendingTransactionId,
   deviceId,
-  forterToken,
   clientIp,
 }: {
   sessionKey: string;
@@ -353,14 +342,12 @@ export async function chargeCoinflowSavedCard({
   authentication3DS: ThreeDsBrowserParams | {transactionId: string};
   pendingTransactionId: string;
   deviceId?: string;
-  forterToken?: string;
   clientIp?: string;
 }): Promise<CoinflowChallengeableResult> {
   return postCoinflowChallengeableCheckout({
     path: `/api/checkout/token/${coinflowConfig.merchantId}`,
     authHeaders: {'x-coinflow-auth-session-key': sessionKey},
     deviceId,
-    forterToken,
     clientIp,
     body: {
       subtotal: {cents: subtotalCents},

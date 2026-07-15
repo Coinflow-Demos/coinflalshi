@@ -63,7 +63,7 @@ export function CardsTab() {
     setError(null);
     setSubmitting(true);
     try {
-      const {token: cardToken, expMonth, expYear, forterToken} = (await cardFormRef.current?.tokenize()) ?? {};
+      const {token: cardToken, expMonth, expYear} = (await cardFormRef.current?.tokenize()) ?? {};
       if (!cardToken || !expMonth || !expYear) {
         setError('Enter your card details before continuing');
         return;
@@ -80,7 +80,6 @@ export function CardsTab() {
             expYear,
             billing,
             authentication3DS: get3DsBrowserParams(),
-            forterToken,
           },
         }
       );

@@ -8,7 +8,6 @@ const completeSchema = z.object({
   pendingTransactionId: z.string().min(1),
   threeDsTransactionId: z.string().min(1),
   deviceId: z.string().optional(),
-  forterToken: z.string().optional(),
 });
 
 // What /charge-saved stashed on the transaction when it returned a 3DS
@@ -29,7 +28,7 @@ export async function POST(request: Request) {
   if (!parsed.success) {
     return NextResponse.json({error: 'Invalid request'}, {status: 400});
   }
-  const {pendingTransactionId, threeDsTransactionId, deviceId, forterToken} = parsed.data;
+  const {pendingTransactionId, threeDsTransactionId, deviceId} = parsed.data;
 
   const transaction = await db.transaction.findUnique({where: {id: pendingTransactionId}});
   if (!transaction || transaction.userId !== userId || transaction.status !== 'PENDING') {
@@ -60,7 +59,6 @@ export async function POST(request: Request) {
       authentication3DS: {transactionId: threeDsTransactionId},
       pendingTransactionId,
       deviceId,
-      forterToken,
       clientIp,
     });
 

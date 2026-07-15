@@ -99,7 +99,7 @@ export function DepositTab({onDeposited}: {onDeposited: () => void}) {
   }
 
   async function handlePayNewCard() {
-    const {token: cardToken, expMonth, expYear, forterToken} = (await cardFormRef.current?.tokenize()) ?? {};
+    const {token: cardToken, expMonth, expYear} = (await cardFormRef.current?.tokenize()) ?? {};
     if (!cardToken || !expMonth || !expYear) {
       setError('Enter your card details before continuing');
       return;
@@ -121,7 +121,6 @@ export function DepositTab({onDeposited}: {onDeposited: () => void}) {
         expYear,
         billing,
         authentication3DS: get3DsBrowserParams(),
-        forterToken,
         saveCard,
       },
     });
@@ -145,7 +144,7 @@ export function DepositTab({onDeposited}: {onDeposited: () => void}) {
       setError('Loading card — try again in a moment');
       return;
     }
-    const {token: cvvVerifiedToken, forterToken} = (await cvvFormRef.current?.tokenize()) ?? {};
+    const {token: cvvVerifiedToken} = (await cvvFormRef.current?.tokenize()) ?? {};
     if (!cvvVerifiedToken) {
       setError('Enter your CVV before continuing');
       return;
@@ -164,7 +163,6 @@ export function DepositTab({onDeposited}: {onDeposited: () => void}) {
         amountCents,
         cvvVerifiedToken,
         authentication3DS: get3DsBrowserParams(),
-        forterToken,
       },
     });
 

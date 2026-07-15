@@ -27,7 +27,6 @@ const chargeSchema = z.object({
     timeZone: z.number(),
   }),
   deviceId: z.string().optional(),
-  forterToken: z.string().optional(),
   saveCard: z.boolean().optional(),
 });
 
@@ -50,7 +49,6 @@ export async function POST(request: Request) {
     billing,
     authentication3DS,
     deviceId,
-    forterToken,
     saveCard,
   } = parsed.data;
 
@@ -73,7 +71,6 @@ export async function POST(request: Request) {
       pendingTransactionId: transaction.id,
       saveCard,
       deviceId,
-      forterToken,
       clientIp,
     });
 
