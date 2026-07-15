@@ -79,6 +79,16 @@ behavior.
   `POST /api/checkout/token/{merchantId}` instead — this endpoint needs a
   *customer-scoped* session key (minted with `x-coinflow-auth-user-id`), a
   stricter requirement than the plain card charge above.
+- If a saved card is eligible for **card on file**, it charges with no CVV
+  prompt at all via `POST /api/checkout/card-on-file` — a genuinely different
+  endpoint from the one above, authenticated with a merchant API key +
+  `x-coinflow-auth-user-id` instead of a session key (every other checkout
+  endpoint here uses a session key; this one doesn't). Before offering it,
+  `POST /api/checkout/card-on-file-authorized` checks eligibility — it can
+  come back `false` for reasons ranging from an expired verification window
+  to card-on-file simply not being enabled on the merchant account yet, in
+  which case the app falls back to the CVV form automatically with no visible
+  difference to the user.
 - "Save this card without charging it" uses
   `POST /api/checkout/zero-authorization/{merchantId}`. This endpoint has a
   narrower body than a real charge — no `subtotal`, `chargebackProtectionData`,
@@ -108,10 +118,11 @@ behavior.
   `postMessage` instead.
 - Completing a challenge sends `authentication3DS: {transactionId}` — that
   object accepts **only** the `transactionId` key, nothing else.
-- The original charge details (card token/expiry/billing, or the saved
-  card's `cvvVerifiedToken`) are stashed server-side on the pending
-  transaction when the challenge is issued, and read back at `/complete` —
-  never re-trusted from what the client resubmits after the challenge.
+- The original charge details (card token/expiry/billing, the saved card's
+  `cvvVerifiedToken`, or the card-on-file `savedPaymentMethodId`) are stashed
+  server-side on the pending transaction when the challenge is issued, and
+  read back at `/complete` — never re-trusted from what the client resubmits
+  after the challenge.
 - The browser-signal fields (`colorDepth`, `screenHeight`, `screenWidth`,
   `timeZone`) sent as `authentication3DS` on the initial charge match
   Coinflow's own production checkout widget's code exactly — `timeZone` is
