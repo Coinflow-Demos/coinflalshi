@@ -31,6 +31,27 @@ export const {handlers, auth, signIn, signOut} = NextAuth({
         return {id: user.id, email: user.email, name: user.name};
       },
     }),
+    Credentials({
+      id: 'guest',
+      name: 'Guest',
+      credentials: {},
+      // No real credentials — every attempt mints a brand-new, throwaway
+      // user with an unguessable password (there's nothing to remember, so
+      // there's no way back into this account once it's gone).
+      authorize: async () => {
+        const passwordHash = await bcrypt.hash(crypto.randomUUID(), 10);
+        const user = await db.user.create({
+          data: {
+            name: 'Guest',
+            email: `guest-${crypto.randomUUID()}@guest.coinflalshi.local`,
+            passwordHash,
+            isGuest: true,
+            wallet: {create: {balanceCents: 0}},
+          },
+        });
+        return {id: user.id, email: user.email, name: user.name};
+      },
+    }),
   ],
   callbacks: {
     jwt: ({token, user}) => {

@@ -28,6 +28,19 @@ export function LoginForm() {
     router.refresh();
   }
 
+  async function handleGuest() {
+    setSubmitting(true);
+    setError(null);
+    const result = await signIn('guest', {redirect: false});
+    if (result?.error) {
+      setError('Could not start a guest session — please try again');
+      setSubmitting(false);
+      return;
+    }
+    router.push('/');
+    router.refresh();
+  }
+
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-4">
       <div>
@@ -52,6 +65,17 @@ export function LoginForm() {
       <Button type="submit" size="lg" disabled={submitting}>
         {submitting ? 'Logging in…' : 'Log in'}
       </Button>
+      <div className="flex items-center gap-3">
+        <span className="h-px flex-1 bg-border" />
+        <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">or</span>
+        <span className="h-px flex-1 bg-border" />
+      </div>
+      <Button type="button" variant="outline" size="lg" disabled={submitting} onClick={handleGuest}>
+        Continue as guest
+      </Button>
+      <p className="text-center text-xs text-muted-foreground">
+        Guest sessions aren&apos;t saved — everything (bets, saved cards) is gone once you sign out.
+      </p>
     </form>
   );
 }

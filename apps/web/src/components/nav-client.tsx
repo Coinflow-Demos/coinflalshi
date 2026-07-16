@@ -33,6 +33,11 @@ export function NavClient({
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => setMenuOpen(false), [pathname]);
 
+  async function handleSignOut() {
+    await fetch('/api/auth/guest-cleanup', {method: 'POST'}).catch(() => {});
+    await signOut({callbackUrl: '/'});
+  }
+
   return (
     <div className="flex items-center gap-2 sm:gap-4">
       <nav className="hidden items-center gap-1 sm:flex">
@@ -68,7 +73,7 @@ export function NavClient({
           </Link>
           <button
             aria-label="Sign out"
-            onClick={() => signOut({callbackUrl: '/'})}
+            onClick={handleSignOut}
             className="hidden h-9 w-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent sm:flex"
           >
             <LogOut className="h-4 w-4" />
@@ -111,7 +116,7 @@ export function NavClient({
           ))}
           {user ? (
             <button
-              onClick={() => signOut({callbackUrl: '/'})}
+              onClick={handleSignOut}
               className="flex items-center gap-2 rounded-lg px-3 py-2.5 text-left text-sm font-medium text-muted-foreground transition-colors hover:bg-accent"
             >
               <LogOut className="h-4 w-4" />

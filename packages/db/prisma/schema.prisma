@@ -14,6 +14,7 @@ model User {
   email                  String                  @unique
   passwordHash           String
   name                   String
+  isGuest                Boolean                 @default(false)
   createdAt              DateTime                @default(now())
   wallet                 Wallet?
   positions              Position[]
