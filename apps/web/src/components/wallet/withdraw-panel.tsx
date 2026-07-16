@@ -217,7 +217,7 @@ export function WithdrawPanel({balanceCents}: {balanceCents: number}) {
         <>
           {accounts.methods.length === 0 ? (
             <p className="text-sm text-muted-foreground">
-              No payout methods linked yet — link a bank account or card to withdraw.
+              No payout methods linked yet — link a bank account, card, Venmo, or PayPal to withdraw.
             </p>
           ) : (
             <div>
@@ -244,7 +244,7 @@ export function WithdrawPanel({balanceCents}: {balanceCents: number}) {
           )}
 
           <Button type="button" variant="outline" onClick={handleStartLinking} className="self-start">
-            + Link a bank account or card
+            + Link a payout method
           </Button>
 
           {error && <p className="text-sm text-destructive">{error}</p>}

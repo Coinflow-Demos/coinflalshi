@@ -1,10 +1,11 @@
 import {NextResponse} from 'next/server';
 import {getCurrentUserId} from '@/lib/current-user';
-import {getCoinflowSessionKey, buildCoinflowBankAuthUrl, getClientIp} from '@/lib/coinflow/server';
+import {getCoinflowSessionKey, buildCoinflowWithdrawUrl, getClientIp} from '@/lib/coinflow/server';
 
-/** Returns a hosted Bank Authentication UI URL for the current user to link
- * a payout method (bank via Plaid, card, etc). Meant to be embedded in an
- * iframe — see withdraw-panel.tsx for the accountLinked postMessage listener. */
+/** Returns a hosted withdraw-method-selection URL for the current user to
+ * link a payout method (bank, card, Venmo, PayPal, etc). Meant to be
+ * embedded in an iframe — see withdraw-panel.tsx for the accountLinked
+ * postMessage listener. */
 export async function GET(request: Request) {
   const userId = await getCurrentUserId(request);
   if (!userId) {
@@ -14,7 +15,7 @@ export async function GET(request: Request) {
   const origin = new URL(request.url).origin;
   try {
     const sessionKey = await getCoinflowSessionKey({userId, clientIp: getClientIp(request)});
-    const url = buildCoinflowBankAuthUrl({
+    const url = buildCoinflowWithdrawUrl({
       sessionKey,
       redirectUrl: `${origin}/wallet?withdrawLinked=1`,
     });

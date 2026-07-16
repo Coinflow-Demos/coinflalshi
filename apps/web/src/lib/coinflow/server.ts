@@ -618,8 +618,9 @@ export async function createCoinflowDepositAddress({
 }
 
 // --- Payouts (withdraws) -----------------------------------------------
-// 1. User links a payout method (bank/card/etc) via the hosted Bank
-//    Authentication UI — we never see routing/account numbers.
+// 1. User links a payout method (bank, card, Venmo, PayPal, etc.) via
+//    Coinflow's hosted withdraw UI — we never see routing/account/card
+//    numbers.
 // 2. We list what's linked via GET /api/withdraw ("Get Withdrawer").
 // 3. The user picks one; we submit the payout via
 //    POST /api/merchant/withdraws/payout/delegated (merchant-authenticated,
@@ -649,9 +650,11 @@ export type CoinflowWithdrawerResult =
   | {status: 'ok'; methods: LinkedPayoutMethod[]}
   | {status: 'verification_required'; verificationLink: string};
 
-/** Hosted Bank Authentication UI URL. Posts `{method: "accountLinked"}` to
- * window.parent on success. */
-export function buildCoinflowBankAuthUrl({
+/** Coinflow's hosted withdraw-method-selection UI — offers bank, card,
+ * Venmo, PayPal, etc. depending on which payout providers are enabled on the
+ * merchant account. Posts `{method: "accountLinked"}` to window.parent once
+ * any method is linked (same message regardless of which method). */
+export function buildCoinflowWithdrawUrl({
   sessionKey,
   redirectUrl,
 }: {
@@ -662,7 +665,7 @@ export function buildCoinflowBankAuthUrl({
     sessionKey,
     bankAccountLinkRedirect: redirectUrl,
   });
-  return `${COINFLOW_APP_BASE_URL}/solana/link/${coinflowConfig.merchantId}?${params.toString()}`;
+  return `${COINFLOW_APP_BASE_URL}/solana/withdraw/${coinflowConfig.merchantId}?${params.toString()}`;
 }
 
 interface RawTokenAccount {
