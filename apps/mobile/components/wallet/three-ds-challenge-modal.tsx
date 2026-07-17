@@ -4,9 +4,9 @@ import WebView from 'react-native-webview';
 import {API_BASE_URL} from '@/lib/api';
 import {colors} from '@/constants/theme';
 
-/** React Native has no way to render a hosted iframe/redirect challenge
- * directly, so this opens the web app's /embed/3ds-challenge page in a
- * WebView and waits for it to postMessage completion. */
+/** React Native has no DOM for @basis-theory/web-threeds, so this opens the
+ * web app's /embed/3ds-challenge page in a WebView and waits for it to
+ * postMessage completion. */
 export function ThreeDsChallengeModal({
   url,
   creq,

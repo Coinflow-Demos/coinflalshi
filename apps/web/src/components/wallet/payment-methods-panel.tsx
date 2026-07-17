@@ -2,12 +2,18 @@
 
 import {useEffect, useRef, useState} from 'react';
 import {useSession} from 'next-auth/react';
+import nextDynamic from 'next/dynamic';
 import {CoinflowCardForm, type CardFormRef} from '@coinflowlabs/react';
 import {Button} from '@/components/ui/button';
 import {COINFLOW_CHECKOUT_THEME} from '@/lib/coinflow-theme';
 import {BillingFields, EMPTY_BILLING, type Billing} from '@/components/wallet/billing-fields';
 import {get3DsBrowserParams, getFraudProtectionDeviceId} from '@/lib/coinflow/browser-signals';
-import {ThreeDsChallengeModal} from '@/components/wallet/three-ds-challenge-modal';
+
+// See deposit-panel.tsx — @basis-theory/web-threeds must be client-only.
+const ThreeDsChallengeModal = nextDynamic(
+  () => import('@/components/wallet/three-ds-challenge-modal').then((mod) => mod.ThreeDsChallengeModal),
+  {ssr: false}
+);
 
 interface SavedPaymentMethod {
   id: string;
