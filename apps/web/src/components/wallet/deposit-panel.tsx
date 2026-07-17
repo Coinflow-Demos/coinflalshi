@@ -3,7 +3,6 @@
 import {useEffect, useRef, useState} from 'react';
 import {useRouter} from 'next/navigation';
 import {useSession} from 'next-auth/react';
-import nextDynamic from 'next/dynamic';
 import {CoinflowCardForm, CoinflowCvvForm, type CardFormRef} from '@coinflowlabs/react';
 import {Button} from '@/components/ui/button';
 import {Input} from '@/components/ui/input';
@@ -15,16 +14,10 @@ import {TestCardPicker} from '@/components/wallet/test-card-picker';
 import {SandboxTestingGuide} from '@/components/wallet/sandbox-testing-guide';
 import {get3DsBrowserParams, getFraudProtectionDeviceId} from '@/lib/coinflow/browser-signals';
 import {cn} from '@/lib/utils';
+import {ThreeDsChallengeModal} from '@/components/wallet/three-ds-challenge-modal';
 
 const APPLE_PAY_ENABLED = process.env.NEXT_PUBLIC_COINFLOW_APPLE_PAY_ENABLED === 'true';
 const GOOGLE_PAY_ENABLED = process.env.NEXT_PUBLIC_COINFLOW_GOOGLE_PAY_ENABLED === 'true';
-
-// @basis-theory/web-threeds touches `window` at import time, so it must be
-// loaded client-only or SSR crashes.
-const ThreeDsChallengeModal = nextDynamic(
-  () => import('@/components/wallet/three-ds-challenge-modal').then((mod) => mod.ThreeDsChallengeModal),
-  {ssr: false}
-);
 
 interface SavedPaymentMethod {
   id: string;
