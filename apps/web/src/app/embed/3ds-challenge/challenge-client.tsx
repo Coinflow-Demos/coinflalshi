@@ -2,7 +2,11 @@
 
 import {useEffect} from 'react';
 import {useSearchParams} from 'next/navigation';
-import {buildThreeDsChallengeHtml, buildBasisTheoryChallengeHtml} from '@/lib/coinflow/challenge-html';
+import {
+  buildThreeDsChallengeHtml,
+  buildBasisTheoryChallengeHtml,
+  isBasisTheoryChallengeNotification,
+} from '@/lib/coinflow/challenge-html';
 
 declare global {
   interface Window {
@@ -15,9 +19,8 @@ declare global {
  * or Basis-Theory-style params in `url`'s query string) as an auto-submitting
  * form inside an iframe — see three-ds-challenge-modal.tsx for the web
  * equivalent and why no SDK/key is needed for the Basis Theory shape. Once
- * the challenge finishes, the ACS's final redirect lands on Coinflow's own
- * notification page, which posts "challenge_success" to window.parent —
- * forwarded here to the native WebView via ReactNativeWebView.postMessage. */
+ * the challenge finishes, that completion signal is forwarded to the native
+ * WebView via ReactNativeWebView.postMessage. */
 export function ThreeDsChallengeClient() {
   const searchParams = useSearchParams();
   const url = searchParams.get('url') ?? '';
@@ -26,7 +29,7 @@ export function ThreeDsChallengeClient() {
 
   useEffect(() => {
     function handleMessage(event: MessageEvent) {
-      if (event.data === 'challenge_success') {
+      if (event.data === 'challenge_success' || isBasisTheoryChallengeNotification(event.data)) {
         window.ReactNativeWebView?.postMessage(JSON.stringify({method: 'complete', transactionId}));
       }
     }

@@ -54,3 +54,18 @@ export function buildBasisTheoryChallengeHtml({
   };
   return buildThreeDsChallengeHtml({url: acsChallengeUrl, creq: base64UrlEncode(JSON.stringify(creq))});
 }
+
+/** Recognizes the ACS's own completion signal for a Basis-Theory-routed
+ * challenge — `{type: "challenge", isCompleted, ...}`, posted directly to
+ * window.parent once the user finishes (the same shape
+ * @basis-theory/web-threeds itself listens for from its hosted challenge
+ * page). Coinflow's own TokenEx notification page instead posts the plain
+ * string "challenge_success" — check for both. */
+export function isBasisTheoryChallengeNotification(data: unknown): data is {type: string; isCompleted: boolean} {
+  return (
+    typeof data === 'object' &&
+    data !== null &&
+    (data as {type?: unknown}).type === 'challenge' &&
+    typeof (data as {isCompleted?: unknown}).isCompleted === 'boolean'
+  );
+}

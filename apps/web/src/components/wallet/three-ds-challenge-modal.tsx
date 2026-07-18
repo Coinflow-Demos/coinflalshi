@@ -1,16 +1,20 @@
 'use client';
 
 import {useEffect, useMemo} from 'react';
-import {buildThreeDsChallengeHtml, buildBasisTheoryChallengeHtml} from '@/lib/coinflow/challenge-html';
+import {
+  buildThreeDsChallengeHtml,
+  buildBasisTheoryChallengeHtml,
+  isBasisTheoryChallengeNotification,
+} from '@/lib/coinflow/challenge-html';
 
 // A 412 from Coinflow's card endpoints means a 3DS challenge is required, in
 // one of two shapes: a `creq` to POST into an iframe at `url` (TokenEx), or
 // an empty `creq` with challenge params in `url`'s query string (Basis
 // Theory) — both are just an auto-submitting POST form into an iframe, so
 // both go through the same builder either way. Once the user finishes the
-// challenge, the ACS's final redirect lands on Coinflow's own notification
-// page, which posts "challenge_success" to window.parent — that's our cue
-// to call the matching /complete route and actually finalize the charge.
+// challenge, that's our cue to call the matching /complete route and
+// finalize the charge — signaled one of two ways depending on which ACS
+// handled it: see isBasisTheoryChallengeNotification's doc comment.
 export function ThreeDsChallengeModal({
   url,
   creq,
@@ -24,7 +28,7 @@ export function ThreeDsChallengeModal({
 }) {
   useEffect(() => {
     function handleMessage(event: MessageEvent) {
-      if (event.data === 'challenge_success') onComplete(transactionId);
+      if (event.data === 'challenge_success' || isBasisTheoryChallengeNotification(event.data)) onComplete(transactionId);
     }
     window.addEventListener('message', handleMessage);
     return () => window.removeEventListener('message', handleMessage);
