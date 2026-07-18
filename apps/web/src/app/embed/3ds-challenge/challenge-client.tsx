@@ -1,17 +1,38 @@
 'use client';
 
+import {useEffect} from 'react';
 import {useSearchParams} from 'next/navigation';
 import {buildThreeDsChallengeHtml, buildBasisTheoryChallengeHtml} from '@/lib/coinflow/challenge-html';
+
+declare global {
+  interface Window {
+    ReactNativeWebView?: {postMessage(message: string): void};
+  }
+}
 
 /** Bridge page for the native app: mobile opens this in a WebView to render
  * whichever 3DS challenge shape Coinflow returned (TokenEx `creq` form-post,
  * or Basis-Theory-style params in `url`'s query string) as an auto-submitting
  * form inside an iframe — see three-ds-challenge-modal.tsx for the web
- * equivalent and why no SDK/key is needed for the Basis Theory shape. */
+ * equivalent and why no SDK/key is needed for the Basis Theory shape. Once
+ * the challenge finishes, the ACS's final redirect lands on Coinflow's own
+ * notification page, which posts "challenge_success" to window.parent —
+ * forwarded here to the native WebView via ReactNativeWebView.postMessage. */
 export function ThreeDsChallengeClient() {
   const searchParams = useSearchParams();
   const url = searchParams.get('url') ?? '';
   const creq = searchParams.get('creq') ?? '';
+  const transactionId = searchParams.get('transactionId') ?? '';
+
+  useEffect(() => {
+    function handleMessage(event: MessageEvent) {
+      if (event.data === 'challenge_success') {
+        window.ReactNativeWebView?.postMessage(JSON.stringify({method: 'complete', transactionId}));
+      }
+    }
+    window.addEventListener('message', handleMessage);
+    return () => window.removeEventListener('message', handleMessage);
+  }, [transactionId]);
 
   if (!url) {
     return <p style={{padding: 16, fontFamily: 'sans-serif'}}>Missing challenge parameters.</p>;
