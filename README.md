@@ -26,13 +26,13 @@ key like everything else here.
 ## 3DS challenges
 
 A charge can come back `412` with `{transactionId, url, creq}` instead of
-succeeding — that means a 3DS challenge is required. We render it
-(`ThreeDsChallengeModal`) and complete the charge afterward with
-`authentication3DS: {transactionId}`.
-
-In practice, this merchant's challenges come back with `creq` populated —
-no config needed, just an auto-submitting iframe form that POSTs `creq` to
-the ACS `url`.
+succeeding — that means a 3DS challenge is required, in one of two shapes
+depending on which provider tokenized the card: `creq` populated (TokenEx),
+or empty with challenge params in `url`'s query string instead (Basis
+Theory). Both are just an auto-submitting POST form into an iframe
+(`ThreeDsChallengeModal`, `challenge-html.ts`) — no SDK, no merchant key for
+either path. Completion is detected via a postMessage from the ACS, then we
+complete the charge with `authentication3DS: {transactionId}`.
 
 ## Apple Pay
 
